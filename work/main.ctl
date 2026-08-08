@@ -12,6 +12,12 @@
 (define-param r1 0.2)
 (define-param r2 0.1)
 
+; Dynamic mode execution flags (can be overridden via command line k=v pairs)
+(define-param run-te? true)
+(define-param run-tm? true)
+(define-param run-zeven? false)
+(define-param run-zodd? false)
+
 (define slab-mat (make dielectric (epsilon 9.46)))
 (define air-mat (make dielectric (epsilon 1)))
 
@@ -32,5 +38,8 @@
 (set! k-points (interpolate 10 (get-hex-path-circular kmag)))
 (display-kpath-labels hex-labels-circular)
 
-(run-te)
-(run-tm)
+; Conditionally execute solvers based on dynamic flags
+(if run-te? (run-te))
+(if run-tm? (run-tm))
+(if run-zeven? (run-zeven))
+(if run-zodd? (run-zodd))

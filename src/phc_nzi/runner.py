@@ -23,7 +23,7 @@ def run_hpc(
     script : str or PathLike
         Either a path to a .ctl script file or a string containing Scheme script content.
     mpb_command_line_params : dict
-        Command line parameters to pass to MPB (e.g., {'num-bands': 10, 'resolution': 32}).
+        Command line parameters to pass to MPB (e.g., {'run-te?': 'true', 'run-tm?': 'false', 'resolution': 32}).
     use_mpi : bool
         Whether to use MPI parallel execution (mpirun -np <cores> mpb-mpi).
     cores : int
@@ -121,17 +121,13 @@ def run_hpc(
         try:
             from .plotter import plot_band_structure, plot_epsilon
 
-            # 1. Auto-plot band structure (clean plot without gap shading by default)
-            for data_candidate in ["tefreqs.data", "tmfreqs.data", "freqs.data"]:
-                data_file = wd_path / data_candidate
-                if data_file.is_file():
-                    plot_band_structure(
-                        data_path=data_file,
-                        output_path=wd_path / "band_structure.png",
-                        highlight_gaps=False,  # Avoid gap plot by default
-                        style="light"
-                    )
-                    break
+            # 1. Auto-plot band structure (clean plot with red/blue/black dots)
+            plot_band_structure(
+                data_path=wd_path,
+                output_path=wd_path / "band_structure.png",
+                highlight_gaps=False,
+                style="light"
+            )
 
             # 2. Auto-plot dielectric epsilon grid if .h5 file exists
             for h5_candidate in wd_path.glob("*-epsilon.h5"):
@@ -179,6 +175,13 @@ def main() -> None:
         help="MPB control file (.ctl) to run (default: auto-detected if unique file present in --dir)"
     )
     parser.add_argument(
+        "-m", "--mode",
+        type=str,
+        default="both",
+        choices=["te", "tm", "both", "zeven", "zodd", "all"],
+        help="Polarization mode solver to run: te, tm, both, zeven, zodd (default: both)"
+    )
+    parser.add_argument(
         "-c", "--cores",
         type=int,
         default=4,
@@ -215,11 +218,40 @@ def main() -> None:
         else:
             script_path = "example.ctl"
 
-    if input(f"Do you want to run the script '{script_path}' in directory '{target_dir}'? (y/n): ").strip().lower() == "y":
-        print(f"Running MPB script '{script_path}' in directory '{target_dir}'...")
+    # Configure dynamic mode parameter flags
+    mpb_params: Dict[str, Any] = {}
+    mode_arg = args.mode.lower()
+    if mode_arg == "te":
+        mpb_params["run-te?"] = "true"
+        mpb_params["run-tm?"] = "false"
+        mpb_params["run-zeven?"] = "false"
+        mpb_params["run-zodd?"] = "false"
+    elif mode_arg == "tm":
+        mpb_params["run-te?"] = "false"
+        mpb_params["run-tm?"] = "true"
+        mpb_params["run-zeven?"] = "false"
+        mpb_params["run-zodd?"] = "false"
+    elif mode_arg == "zeven":
+        mpb_params["run-te?"] = "false"
+        mpb_params["run-tm?"] = "false"
+        mpb_params["run-zeven?"] = "true"
+        mpb_params["run-zodd?"] = "false"
+    elif mode_arg == "zodd":
+        mpb_params["run-te?"] = "false"
+        mpb_params["run-tm?"] = "false"
+        mpb_params["run-zeven?"] = "false"
+        mpb_params["run-zodd?"] = "true"
+    elif mode_arg in ["both", "all"]:
+        mpb_params["run-te?"] = "true"
+        mpb_params["run-tm?"] = "true"
+        mpb_params["run-zeven?"] = "false"
+        mpb_params["run-zodd?"] = "false"
+
+    if input(f"Do you want to run the script '{script_path}' in directory '{target_dir}' with mode '{args.mode}'? (y/n): ").strip().lower() == "y":
+        print(f"Running MPB script '{script_path}' in directory '{target_dir}' (mode: {args.mode})...")
         res = run_hpc(
             script=script_path,
-            mpb_command_line_params={},
+            mpb_command_line_params=mpb_params,
             use_mpi=not args.no_mpi,
             cores=args.cores,
             version="mpb/1.11.1",
