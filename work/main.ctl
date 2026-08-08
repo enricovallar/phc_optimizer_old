@@ -6,7 +6,7 @@
 (load-module "lattices.ctl")
 
 (set! deterministic? true)
-(set! num-bands 5)
+(set! num-bands 8)
 (set! resolution 16)
 (define-param h 0.5)
 

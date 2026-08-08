@@ -13,7 +13,7 @@ def plot_band_structure(
     labels: Optional[Union[List[str], str, os.PathLike]] = None,
     output_path: Optional[Union[str, os.PathLike]] = "band_structure.png",
     title: str = "Photonic Crystal Band Structure",
-    highlight_gaps: bool = True,
+    highlight_gaps: bool = False,
     style: str = "light",
     show: bool = False,
     dpi: int = 300,

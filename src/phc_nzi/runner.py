@@ -13,6 +13,7 @@ def run_hpc(
     version: str = "mpb/1.11.1",
     wd: Union[str, os.PathLike] = os.getcwd(),
     auto_extract: bool = True,
+    auto_plot: bool = True,
 ) -> subprocess.CompletedProcess:
     """
     Run an MPB simulation using HPC module tools on DTU DCC cluster.
@@ -33,6 +34,8 @@ def run_hpc(
         Working directory for execution and output files.
     auto_extract : bool, default True
         Whether to automatically parse and extract frequency bands into .data files.
+    auto_plot : bool, default True
+        Whether to automatically generate figures (band structure & epsilon grid).
     """
     wd_path = Path(wd).resolve()
     wd_path.mkdir(parents=True, exist_ok=True)
@@ -113,6 +116,33 @@ def run_hpc(
         except Exception as e:
             print(f"Note: Automatic data extraction notice: {e}")
 
+    # Automatically generate figures if auto_plot is enabled
+    if auto_plot and result.returncode == 0:
+        try:
+            from .plotter import plot_band_structure, plot_epsilon
+
+            # 1. Auto-plot band structure (clean plot without gap shading by default)
+            for data_candidate in ["tefreqs.data", "tmfreqs.data", "freqs.data"]:
+                data_file = wd_path / data_candidate
+                if data_file.is_file():
+                    plot_band_structure(
+                        data_path=data_file,
+                        output_path=wd_path / "band_structure.png",
+                        highlight_gaps=False,  # Avoid gap plot by default
+                        style="light"
+                    )
+                    break
+
+            # 2. Auto-plot dielectric epsilon grid if .h5 file exists
+            for h5_candidate in wd_path.glob("*-epsilon.h5"):
+                plot_epsilon(
+                    h5_path=h5_candidate,
+                    output_path=wd_path / "epsilon_map.png"
+                )
+                break
+        except Exception as e:
+            print(f"Note: Automatic plot generation notice: {e}")
+
     return result
 
 
@@ -171,10 +201,12 @@ def main() -> None:
             use_mpi=not args.no_mpi,
             cores=args.cores,
             version="mpb/1.11.1",
-            wd=target_dir
+            wd=target_dir,
+            auto_extract=True,
+            auto_plot=True
         )
         if res.returncode == 0:
-            print(f"Execution finished successfully! See '{target_dir / 'output.out'}' and '{target_dir / 'error.err'}' for results.")
+            print(f"Execution finished successfully! Results, .data files, and figures generated in '{target_dir}'.")
         else:
             print(f"Execution failed with return code {res.returncode}. Check '{target_dir / 'error.err'}' for details.")
 
