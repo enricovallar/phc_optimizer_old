@@ -25,7 +25,8 @@ def extract_frequencies(
     Returns:
     --------
     dict
-        Dictionary mapping polarization keys ('tefreqs', 'tmfreqs', 'freqs') to parsed headers and rows.
+        Dictionary mapping polarization keys ('tefreqs', 'tmfreqs', 'zevenfreqs', 'zoddfreqs', 'freqs')
+        to parsed headers and rows.
     """
     out_file = Path(output_path).resolve()
     if not out_file.is_file():
@@ -40,7 +41,7 @@ def extract_frequencies(
     lines = out_file.read_text().splitlines()
 
     extracted_data: Dict[str, Any] = {}
-    polarization_types = ["tefreqs", "tmfreqs", "freqs"]
+    polarization_types = ["tefreqs", "tmfreqs", "zevenfreqs", "zoddfreqs", "freqs"]
 
     for pol in polarization_types:
         header_cols: Optional[List[str]] = None
@@ -85,7 +86,7 @@ def extract_frequencies(
             if save_data:
                 data_filepath = target_dir / f"{pol}.data"
                 write_data_file(header_cols, data_rows, data_filepath)
-                print(f"Extracted {len(data_rows)} k-points to '{data_filepath}'")
+                print(f"Extracted {len(data_rows)} k-points for '{pol}' to '{data_filepath}'")
 
     # Extract KPATH_LABELS if present in the log
     labels = extract_kpath_labels(lines)

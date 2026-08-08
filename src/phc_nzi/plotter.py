@@ -19,19 +19,19 @@ def plot_band_structure(
     dpi: int = 300,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
-    Plot photonic band structure dispersion curves from a .data file.
+    Plot photonic band structure dispersion curves from .data files.
 
     Parameters:
     -----------
     data_path : str or PathLike
-        Path to .data file (e.g. 'tefreqs.data') or directory containing .data files.
+        Path to a .data file (e.g. 'tefreqs.data') or directory containing .data files.
     labels : list of str, str, or PathLike, optional
         High-symmetry k-point labels (e.g. ['K', 'Γ', 'M']) or path to kpath_labels.data file.
     output_path : str or PathLike, optional
         Path to save figure (e.g. 'band_structure.png'). If None, figure is not saved to disk.
     title : str
         Plot title.
-    highlight_gaps : bool, default True
+    highlight_gaps : bool, default False
         Whether to highlight and annotate complete photonic band gaps.
     style : {'light', 'dark'}, default 'light'
         Visual style mode.
@@ -45,54 +45,92 @@ def plot_band_structure(
     (fig, ax) : matplotlib Figure and Axes objects.
     """
     path_obj = Path(data_path).resolve()
+    target_dir = path_obj if path_obj.is_dir() else path_obj.parent
+
+    # Mode color & label specs:
+    # "te" and "zeven" -> Red ("#d62728")
+    # "tm" and "zodd"  -> Blue ("#1f77b4")
+    # "" (generic)    -> Black ("#000000")
+    MODE_SPECS = [
+        ("tefreqs.data", "#d62728", "TE Modes"),
+        ("zevenfreqs.data", "#d62728", "Z-even Modes"),
+        ("tmfreqs.data", "#1f77b4", "TM Modes"),
+        ("zoddfreqs.data", "#1f77b4", "Z-odd Modes"),
+        ("freqs.data", "#000000", "Modes"),
+    ]
+
+    files_to_plot: List[Tuple[Path, str, str]] = []
+
     if path_obj.is_dir():
-        # Look for tefreqs.data, tmfreqs.data, or freqs.data in directory
-        for candidate in ["tefreqs.data", "tmfreqs.data", "freqs.data"]:
-            if (path_obj / candidate).is_file():
-                path_obj = path_obj / candidate
-                break
+        for candidate_filename, color, mode_label in MODE_SPECS:
+            fpath = path_obj / candidate_filename
+            if fpath.is_file():
+                files_to_plot.append((fpath, color, mode_label))
+    else:
+        # User passed a specific file path. Check if other .data files exist in same dir
+        fname_lower = path_obj.name.lower()
+        if "te" in fname_lower or "zeven" in fname_lower:
+            c, lbl = "#d62728", "TE Modes" if "te" in fname_lower else "Z-even Modes"
+        elif "tm" in fname_lower or "zodd" in fname_lower:
+            c, lbl = "#1f77b4", "TM Modes" if "tm" in fname_lower else "Z-odd Modes"
+        else:
+            c, lbl = "#000000", "Modes"
 
-    if not path_obj.is_file():
-        raise FileNotFoundError(f"Band structure data file not found at '{path_obj}'")
+        files_to_plot.append((path_obj, c, lbl))
 
-    headers, data_matrix = load_data_file(path_obj)
-    if data_matrix.shape[0] == 0:
-        raise ValueError(f"No numeric rows found in data file '{path_obj}'")
+        # Also search for sibling .data files in target_dir if available
+        for candidate_filename, color, mode_label in MODE_SPECS:
+            fpath = target_dir / candidate_filename
+            if fpath.is_file() and fpath != path_obj:
+                files_to_plot.append((fpath, color, mode_label))
 
-    # Determine polarization prefix from filename or headers
-    pol_name = "TE" if "te" in path_obj.name.lower() else ("TM" if "tm" in path_obj.name.lower() else "Band")
-
-    # Column 0 is k_index, column 4 is kmag_2pi, columns 5+ are band frequencies
-    k_indices = data_matrix[:, 0]
-    bands_data = data_matrix[:, 5:]
-    num_bands = bands_data.shape[1]
+    if not files_to_plot:
+        raise FileNotFoundError(f"No band structure .data files found in '{target_dir}'")
 
     # Resolve k-path labels
-    label_list = resolve_kpath_labels(labels, path_obj.parent)
+    label_list = resolve_kpath_labels(labels, target_dir)
 
     # Configure matplotlib style
     setup_plot_style(style)
 
     fig, ax = plt.subplots(figsize=(8, 5.5), dpi=dpi)
 
-    # Plot band curves
-    colors = plt.cm.tab10(np.linspace(0, 1, max(10, num_bands)))
-    for b in range(num_bands):
-        ax.plot(
-            k_indices,
-            bands_data[:, b],
-            label=f"Band {b+1}",
-            color=colors[b % len(colors)],
-            linewidth=2.0,
-            marker="o",
-            markersize=3.5,
-            alpha=0.9
-        )
+    k_indices_ref: Optional[np.ndarray] = None
+    all_bands_list: List[np.ndarray] = []
+
+    for fpath, color, mode_label in files_to_plot:
+        headers, data_matrix = load_data_file(fpath)
+        if data_matrix.shape[0] == 0:
+            continue
+
+        k_indices = data_matrix[:, 0]
+        if k_indices_ref is None:
+            k_indices_ref = k_indices
+
+        bands_data = data_matrix[:, 5:]
+        num_bands = bands_data.shape[1]
+        all_bands_list.append(bands_data)
+
+        # Plot each band with no line (dots only)
+        for b in range(num_bands):
+            ax.plot(
+                k_indices,
+                bands_data[:, b],
+                linestyle="None",
+                marker="o",
+                markersize=4.0,
+                color=color,
+                alpha=0.85,
+                label=mode_label if b == 0 else ""  # Common legend entry per mode type
+            )
+
+    if k_indices_ref is None:
+        raise ValueError(f"No numeric band data found in target files.")
 
     # Configure X-axis ticks & high-symmetry vertical lines
     if label_list and len(label_list) > 1:
         formatted_labels = [r"$\Gamma$" if l.lower() in ["gamma", "g"] else l for l in label_list]
-        tick_positions = np.linspace(k_indices[0], k_indices[-1], len(formatted_labels))
+        tick_positions = np.linspace(k_indices_ref[0], k_indices_ref[-1], len(formatted_labels))
         ax.set_xticks(tick_positions)
         ax.set_xticklabels(formatted_labels, fontsize=12, fontweight="bold")
 
@@ -103,15 +141,16 @@ def plot_band_structure(
 
     # Configure Y-axis
     ax.set_ylabel(r"Frequency ($\omega a / 2\pi c$)", fontsize=12, fontweight="bold")
-    ax.set_title(f"{title} ({pol_name} Modes)", fontsize=13, fontweight="bold", pad=12)
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
 
     # Highlight Photonic Band Gaps if requested
-    if highlight_gaps and num_bands > 1:
-        gaps = find_photonic_band_gaps(bands_data)
+    if highlight_gaps and len(all_bands_list) > 0:
+        combined_bands = np.hstack(all_bands_list)
+        gaps = find_photonic_band_gaps(combined_bands)
         for g_idx, (gap_min, gap_max, gap_pct, lower_b) in enumerate(gaps):
             ax.axhspan(gap_min, gap_max, color="#ff7f0e", alpha=0.22, label="Band Gap" if g_idx == 0 else "")
             mid_y = (gap_min + gap_max) / 2.0
-            mid_x = (k_indices[0] + k_indices[-1]) / 2.0
+            mid_x = (k_indices_ref[0] + k_indices_ref[-1]) / 2.0
             ax.text(
                 mid_x,
                 mid_y,
@@ -124,12 +163,11 @@ def plot_band_structure(
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#d95f02", alpha=0.85)
             )
 
-    ax.set_xlim(k_indices[0], k_indices[-1])
+    ax.set_xlim(k_indices_ref[0], k_indices_ref[-1])
     ax.set_ylim(bottom=0.0)
     ax.grid(True, linestyle=":", alpha=0.5)
 
-    if num_bands <= 10:
-        ax.legend(loc="upper right", frameon=True, fontsize=8.5, ncol=2 if num_bands > 5 else 1)
+    ax.legend(loc="upper right", frameon=True, fontsize=9.5)
 
     fig.tight_layout()
 
