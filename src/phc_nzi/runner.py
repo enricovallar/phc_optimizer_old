@@ -12,6 +12,7 @@ def run_hpc(
     cores: int = 4,
     version: str = "mpb/1.11.1",
     wd: Union[str, os.PathLike] = os.getcwd(),
+    auto_extract: bool = True,
 ) -> subprocess.CompletedProcess:
     """
     Run an MPB simulation using HPC module tools on DTU DCC cluster.
@@ -30,6 +31,8 @@ def run_hpc(
         Module version string for MPB on DCC (e.g. 'mpb/1.11.1').
     wd : str or PathLike
         Working directory for execution and output files.
+    auto_extract : bool, default True
+        Whether to automatically parse and extract frequency bands into .data files.
     """
     wd_path = Path(wd).resolve()
     wd_path.mkdir(parents=True, exist_ok=True)
@@ -101,6 +104,14 @@ def run_hpc(
         f.write(result.stderr)
     with open(output_file, "w") as f:
         f.write(result.stdout)
+
+    # Automatically extract frequency data if output log contains freqs
+    if auto_extract and result.returncode == 0 and output_file.is_file():
+        try:
+            from .extractor import extract_frequencies
+            extract_frequencies(output_path=output_file, output_dir=wd_path, save_data=True)
+        except Exception as e:
+            print(f"Note: Automatic data extraction notice: {e}")
 
     return result
 

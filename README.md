@@ -1,6 +1,6 @@
 # phc-nzi
 
-Modular MPB configuration and HPC runner package for photonic crystal simulations on DTU DCC.
+Modular MPB configuration, HPC runner, and frequency data extractor package for photonic crystal simulations on DTU DCC.
 
 ## Setup with `uv`
 
@@ -19,7 +19,7 @@ You can run MPB simulations using `uv`:
 uv run phc-runner
 
 # Specify custom target working directory and script:
-uv run phc-runner --dir /path/to/directory --script example.ctl --cores 8
+uv run phc-runner --dir work --script main.ctl --cores 8
 ```
 
 ### CLI Arguments (`phc-runner --help`)
@@ -31,18 +31,42 @@ uv run phc-runner --dir /path/to/directory --script example.ctl --cores 8
 | `--cores` | `-c` | Number of MPI cores to use | `4` |
 | `--no-mpi` | | Disable MPI parallel execution | False |
 
+---
+
+## Extracting Frequency Data (`.data` files)
+
+The package automatically parses simulation logs (`output.out`) and extracts band frequencies and high-symmetry k-path labels into clean `.data` files (`tefreqs.data`, `tmfreqs.data`, `kpath_labels.data`).
+
+You can also run the extractor manually on any MPB log file:
+
+```bash
+uv run phc-extractor -i work/output.out -o work/
+```
+
+### Output `.data` File Format (`tefreqs.data`)
+
+```text
+# k_index k1 k2 k3 kmag_2pi te_band_1 te_band_2 te_band_3 te_band_4 te_band_5
+1 -0.05 0.05 0 0.1 0.0333558 0.352495 0.357269 0.381788 0.385973
+2 -0.0375 0.0375 0 0.075 0.0250171 0.359292 0.363945 0.381189 0.385331
+...
+```
+
+---
+
 ## Python API Usage
 
 ```python
-from phc_nzi import run_hpc, load_script
+from phc_nzi import run_hpc, extract_frequencies
 
-# Run an MPB control file
+# 1. Run MPB simulation
 run_hpc(
-    script="example.ctl",
-    mpb_command_line_params={"resolution": 32},
+    script="main.ctl",
     use_mpi=True,
     cores=4,
-    version="mpb/1.11.1",
-    wd="/path/to/directory"
+    wd="work"
 )
+
+# 2. Extract frequency data from output log manually if needed
+data = extract_frequencies(output_path="work/output.out")
 ```
