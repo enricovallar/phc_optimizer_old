@@ -1,0 +1,17 @@
+[project]
+name = "phc-nzi"
+version = "0.1.0"
+description = "Modular MPB configuration and HPC runner package for photonic crystal calculations"
+readme = "README.md"
+authors = [
+    { name = "Enrico Vallar", email = "s232699@dtu.dk" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+phc-runner = "phc_nzi.runner:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
