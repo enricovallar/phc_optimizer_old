@@ -135,11 +135,16 @@ def run_hpc(
 
             # 2. Auto-plot dielectric epsilon grid if .h5 file exists
             for h5_candidate in wd_path.glob("*-epsilon.h5"):
-                plot_epsilon(
-                    h5_path=h5_candidate,
-                    output_path=wd_path / "epsilon_map.png"
-                )
-                break
+                if not h5_candidate.stem.endswith("-rectified"):
+                    plot_epsilon(
+                        h5_path=h5_candidate,
+                        output_path=wd_path / "epsilon_map.png",
+                        rectify=True,
+                        resolution=64,
+                        periods_x=2,
+                        periods_y=2
+                    )
+                    break
         except Exception as e:
             print(f"Note: Automatic plot generation notice: {e}")
 

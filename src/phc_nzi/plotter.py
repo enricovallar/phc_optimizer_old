@@ -150,6 +150,8 @@ def plot_epsilon(
     output_path: Optional[Union[str, os.PathLike]] = "epsilon_map.png",
     rectify: bool = True,
     resolution: int = 64,
+    periods_x: int = 1,
+    periods_y: int = 1,
     slice_idx: Optional[int] = None,
     cmap: str = "viridis",
     title: str = "Dielectric Function Grid (Epsilon)",
@@ -169,6 +171,10 @@ def plot_epsilon(
         Whether to run mpb-data to geometrically rectify non-orthogonal/hexagonal grids to Cartesian coordinates.
     resolution : int, default 64
         Sampling resolution for grid rectification (grid points per period).
+    periods_x : int, default 1
+        Number of unit cell periods to output along x.
+    periods_y : int, default 1
+        Number of unit cell periods to output along y.
     slice_idx : int, optional
         Z-plane slice index for 3D grids. Defaults to center slice.
     cmap : str, default 'viridis'
@@ -189,12 +195,18 @@ def plot_epsilon(
     if rectify and not h5_file.stem.endswith("-rectified"):
         try:
             from .rectifier import rectify_h5_data
-            h5_file = rectify_h5_data(h5_file, resolution=resolution, rectangular=True)
+            h5_file = rectify_h5_data(
+                h5_file,
+                resolution=resolution,
+                rectangular=True,
+                periods_x=periods_x,
+                periods_y=periods_y
+            )
         except Exception as e:
             print(f"Note: Grid rectification fallback: {e}")
 
     with h5py.File(h5_file, "r") as f:
-        key = list(f.keys())[0]
+        key = "data" if "data" in f else ("epsilon.xx" if "epsilon.xx" in f else list(f.keys())[0])
         data = np.array(f[key])
 
     # Extract 2D slice if 3D array
@@ -207,15 +219,18 @@ def plot_epsilon(
     else:
         raise ValueError(f"Unsupported array dimensions ({data.ndim}D) in HDF5 file")
 
+    Nx, Ny = data_2d.shape
+    extent = [0, periods_x, 0, (Ny / Nx) * periods_x]
+
     fig, ax = plt.subplots(figsize=(6, 5.5), dpi=dpi)
-    im = ax.imshow(data_2d.T, origin="lower", cmap=cmap, interpolation="nearest")
+    im = ax.imshow(data_2d.T, origin="lower", extent=extent, cmap=cmap, interpolation="bilinear", aspect="equal")
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label(r"Permittivity $\epsilon$", fontsize=11, fontweight="bold")
 
     ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-    ax.set_xlabel("Grid X", fontsize=10, fontweight="bold")
-    ax.set_ylabel("Grid Y", fontsize=10, fontweight="bold")
+    ax.set_xlabel("Position X ($a$)", fontsize=10, fontweight="bold")
+    ax.set_ylabel("Position Y ($a$)", fontsize=10, fontweight="bold")
     fig.tight_layout()
 
     if output_path is not None:
