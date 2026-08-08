@@ -24,7 +24,7 @@
 (set! geometry (make-superposition background-slab (list shapes-1a)))
 
 (define-param kmag 0.1)
-(set! k-points (interpolate 3 (get-hex-path-circular kmag)))
+(set! k-points (interpolate 10 (get-hex-path-circular kmag)))
 (display-kpath-labels hex-labels-circular)
 
 (run-te)
