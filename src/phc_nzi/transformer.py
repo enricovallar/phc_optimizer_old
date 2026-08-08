@@ -47,7 +47,11 @@ class MPBDataOptions:
         """
         self.rectify = rectify
         self.axis = axis
-        self.resolution = resolution
+        # Automatically default resolution to 64 when rectifying unless explicitly specified
+        if rectify and resolution is None:
+            self.resolution = 64
+        else:
+            self.resolution = resolution
         self.periods = periods
         self.phase = phase
         self.transpose = transpose
