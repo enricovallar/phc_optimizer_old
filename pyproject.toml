@@ -1,7 +1,7 @@
 [project]
 name = "phc-nzi"
 version = "0.1.0"
-description = "Modular MPB configuration, HPC runner, frequency extractor, and plotter package for photonic crystal calculations"
+description = "Modular MPB configuration, HPC runner, frequency extractor, grid rectifier, and plotter package for photonic crystal calculations"
 readme = "README.md"
 authors = [
     { name = "Enrico Vallar", email = "s232699@dtu.dk" }
@@ -17,6 +17,7 @@ dependencies = [
 phc-runner = "phc_nzi.runner:main"
 phc-extractor = "phc_nzi.extractor:main"
 phc-plotter = "phc_nzi.plotter:main"
+phc-rectifier = "phc_nzi.rectifier:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -148,6 +148,8 @@ def plot_band_structure(
 def plot_epsilon(
     h5_path: Union[str, os.PathLike],
     output_path: Optional[Union[str, os.PathLike]] = "epsilon_map.png",
+    rectify: bool = True,
+    resolution: int = 64,
     slice_idx: Optional[int] = None,
     cmap: str = "viridis",
     title: str = "Dielectric Function Grid (Epsilon)",
@@ -163,6 +165,10 @@ def plot_epsilon(
         Path to HDF5 epsilon file (e.g. 'example-epsilon.h5').
     output_path : str or PathLike, optional
         Path to save image figure.
+    rectify : bool, default True
+        Whether to run mpb-data to geometrically rectify non-orthogonal/hexagonal grids to Cartesian coordinates.
+    resolution : int, default 64
+        Sampling resolution for grid rectification (grid points per period).
     slice_idx : int, optional
         Z-plane slice index for 3D grids. Defaults to center slice.
     cmap : str, default 'viridis'
@@ -179,6 +185,13 @@ def plot_epsilon(
     h5_file = Path(h5_path).resolve()
     if not h5_file.is_file():
         raise FileNotFoundError(f"HDF5 file not found at '{h5_file}'")
+
+    if rectify and not h5_file.stem.endswith("-rectified"):
+        try:
+            from .rectifier import rectify_h5_data
+            h5_file = rectify_h5_data(h5_file, resolution=resolution, rectangular=True)
+        except Exception as e:
+            print(f"Note: Grid rectification fallback: {e}")
 
     with h5py.File(h5_file, "r") as f:
         key = list(f.keys())[0]
