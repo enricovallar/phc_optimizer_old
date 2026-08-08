@@ -173,8 +173,8 @@ def main() -> None:
     parser.add_argument(
         "-s", "--script",
         type=str,
-        default="example.ctl",
-        help="MPB control file (.ctl) to run (default: example.ctl)"
+        default=None,
+        help="MPB control file (.ctl) to run (default: auto-detected if unique file present in --dir)"
     )
     parser.add_argument(
         "-c", "--cores",
@@ -192,6 +192,26 @@ def main() -> None:
 
     target_dir = Path(args.dir).resolve()
     script_path = args.script
+
+    # Auto-detect .ctl script in target_dir if -s / --script is not specified
+    if script_path is None:
+        ctl_files_in_dir = [
+            f.name for f in target_dir.glob("*.ctl")
+            if f.name != "init.ctl"
+        ]
+        if len(ctl_files_in_dir) == 1:
+            script_path = ctl_files_in_dir[0]
+            print(f"Auto-detected single control script in '{target_dir}': {script_path}")
+        elif len(ctl_files_in_dir) > 1:
+            if "main.ctl" in ctl_files_in_dir:
+                script_path = "main.ctl"
+            elif "example.ctl" in ctl_files_in_dir:
+                script_path = "example.ctl"
+            else:
+                script_path = ctl_files_in_dir[0]
+            print(f"Multiple .ctl scripts found in '{target_dir}'. Selected: {script_path}")
+        else:
+            script_path = "example.ctl"
 
     if input(f"Do you want to run the script '{script_path}' in directory '{target_dir}'? (y/n): ").strip().lower() == "y":
         print(f"Running MPB script '{script_path}' in directory '{target_dir}'...")

@@ -7,8 +7,9 @@
 
 (set! deterministic? true)
 (set! num-bands 8)
-(set! resolution 16)
+(set! resolution 32)
 (define-param h 0.5)
+(define-param r1 0.2)
 
 (define slab-mat (make dielectric (epsilon 9.46)))
 (define air-mat (make dielectric (epsilon 1)))
@@ -19,7 +20,7 @@
               (center (vector3 0 0 0))
               (material slab-mat)))
 (define shapes-1a
-  (map (lambda (pos) (make-daisy pos h 100 6 0.05 0.02 air-mat))
+  (map (lambda (pos) (make-param-cylinder pos h r1 air-mat))
        (get-C6v-1a)))
 (set! geometry (make-superposition background-slab (list shapes-1a)))
 
