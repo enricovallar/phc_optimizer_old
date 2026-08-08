@@ -6,7 +6,7 @@ from typing import Union, Optional, List, Dict, Any, Tuple
 
 
 class MPBDataOptions:
-    """Options for MPB data conversion matching phc_nzi.simulation_handler."""
+    """Options for MPB data transformation and conversion (mpb-data)."""
 
     FLAG_MAP = {
         "rectify": "-r",
@@ -33,17 +33,17 @@ class MPBDataOptions:
         dataset: Optional[str] = None,
     ) -> None:
         """
-        Initialize MPB data conversion options.
+        Initialize MPB data transformation options.
 
-        Args:
-            rectify: Whether to rectify the data (default: True)
-            axis: Axis to extract (optional)
-            resolution: Resolution to use (optional)
-            periods: Number of periods in each direction (default: (3, 3, 1))
-            phase: Phase to use for complex fields (optional)
-            transpose: Whether to transpose the data (default: False)
-            pixellized: Whether to use pixellized output (default: False)
-            dataset: Dataset name to extract (optional)
+        Capabilities:
+        - rectify (-r): Rectify non-orthogonal/hexagonal lattices into Cartesian rectangular grids.
+        - periods (-x, -y, -z, -m): Tile N_x x N_y x N_z supercells or set isotropic periods.
+        - resolution (-n): Interpolate/resample spatial resolution (points per period a).
+        - transpose (-T): Transpose x and y grid spatial dimensions.
+        - phase (-P): Apply phase shift (degrees) to complex field datasets (E, H, D).
+        - axis (-e): Specify coordinate axis orientation or slicing plane.
+        - dataset (-d): Extract specific dataset (epsilon.xx, e.r, h.i, etc.).
+        - pixellized (-p): Output raw pixellized grid values without spatial interpolation.
         """
         self.rectify = rectify
         self.axis = axis
@@ -83,7 +83,7 @@ class MPBDataOptions:
 
 
 class MPBDataConverter:
-    """Handles conversion of MPB data files using the mpb-data utility."""
+    """Handles transformation and conversion of MPB data files using the mpb-data utility."""
 
     def __init__(
         self,
@@ -109,7 +109,7 @@ class MPBDataConverter:
         return cmd
 
     def run_conversion(self) -> str:
-        """Execute mpb-data conversion command."""
+        """Execute mpb-data transformation command."""
         if not os.path.exists(self.input_file):
             raise FileNotFoundError(f"Input file not found: {self.input_file}")
 
@@ -132,13 +132,13 @@ class MPBDataConverter:
         return self.output_file
 
 
-def rectify_h5_data(
+def transform_h5_data(
     h5_path: Union[str, os.PathLike],
     output_path: Optional[Union[str, os.PathLike]] = None,
     options: Optional[MPBDataOptions] = None,
 ) -> Path:
     """
-    Rectify MPB HDF5 dataset using MPBDataConverter and MPBDataOptions.
+    Transform MPB HDF5 dataset (epsilon grid, E/H fields) using MPBDataConverter.
 
     Parameters:
     -----------
@@ -151,7 +151,7 @@ def rectify_h5_data(
 
     Returns:
     --------
-    Path : Path object pointing to converted HDF5 file.
+    Path : Path object pointing to transformed HDF5 file.
     """
     input_file = Path(h5_path).resolve()
     if not input_file.is_file():
@@ -166,26 +166,30 @@ def rectify_h5_data(
     converter = MPBDataConverter(input_file, target_file, opts)
     converter.run_conversion()
 
-    print(f"Rectified MPB HDF5 data saved to '{target_file}'")
+    print(f"Transformed MPB HDF5 data saved to '{target_file}'")
     return target_file
 
 
+# Backward compatibility alias
+rectify_h5_data = transform_h5_data
+
+
 def main() -> None:
-    """CLI entry point for mpb-data rectifier tool."""
+    """CLI entry point for phc-transformer tool."""
     parser = argparse.ArgumentParser(
-        description="Rectify MPB HDF5 data grids using mpb-data conversion options."
+        description="Transform MPB HDF5 data grids (rectification, supercell tiling, resolution, phase shift, transposition)."
     )
     parser.add_argument(
         "-i", "--input",
         type=str,
         required=True,
-        help="Input MPB HDF5 file (e.g. main-epsilon.h5)"
+        help="Input MPB HDF5 file (e.g. main-epsilon.h5 or main-e.k01.b01.h5)"
     )
     parser.add_argument(
         "-o", "--output",
         type=str,
         default=None,
-        help="Target output HDF5 file path"
+        help="Target output HDF5 file path (default: <name>.converted.h5)"
     )
     parser.add_argument(
         "-n", "--resolution",
@@ -200,16 +204,34 @@ def main() -> None:
         default=[3, 3, 1],
         help="Number of periods in each direction (default: 3 3 1)"
     )
+    parser.add_argument(
+        "-T", "--transpose",
+        action="store_true",
+        help="Transpose first two spatial dimensions (x and y)"
+    )
+    parser.add_argument(
+        "-P", "--phase",
+        type=float,
+        default=None,
+        help="Phase shift angle in degrees for complex fields"
+    )
+    parser.add_argument(
+        "--no-rect",
+        action="store_true",
+        help="Disable rectangular Cartesian grid transformation"
+    )
 
     args = parser.parse_args()
 
     opts = MPBDataOptions(
-        rectify=True,
+        rectify=not args.no_rect,
         resolution=args.resolution,
-        periods=tuple(args.periods)
+        periods=tuple(args.periods),
+        transpose=args.transpose,
+        phase=args.phase
     )
 
-    rectify_h5_data(
+    transform_h5_data(
         h5_path=args.input,
         output_path=args.output,
         options=opts

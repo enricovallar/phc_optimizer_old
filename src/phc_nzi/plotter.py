@@ -188,10 +188,10 @@ def plot_epsilon(
 
     if rectify and not h5_file.name.endswith(".converted.h5"):
         try:
-            from .rectifier import rectify_h5_data, MPBDataOptions
-            h5_file = rectify_h5_data(h5_file, options=options or MPBDataOptions())
+            from .transformer import transform_h5_data, MPBDataOptions
+            h5_file = transform_h5_data(h5_file, options=options or MPBDataOptions())
         except Exception as e:
-            print(f"Note: Grid rectification fallback: {e}")
+            print(f"Note: Grid transformation fallback: {e}")
 
     with h5py.File(h5_file, "r") as f:
         key = "data" if "data" in f else ("epsilon.xx" if "epsilon.xx" in f else list(f.keys())[0])
