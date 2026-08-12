@@ -21,3 +21,7 @@
 (define-param run-tm? true)
 (define-param run-zeven? false)
 (define-param run-zodd? false)
+
+; Dynamic symmetry display flags
+(define-param display-symmetry? false)
+(define-param display_symmetry? false)

@@ -44,7 +44,7 @@
 (display-kpath-labels hex-labels-circular)
 
 ; 7. Conditionally execute solvers based on dynamic flags (initialized in init.ctl)
-(if run-te? (run-te))
-(if run-tm? (run-tm))
-(if run-zeven? (run-zeven))
-(if run-zodd? (run-zodd))
+(if run-te? (run-te display-symmetries))
+(if run-tm? (run-tm display-symmetries))
+(if run-zeven? (run-zeven display-symmetries))
+(if run-zodd? (run-zodd display-symmetries))

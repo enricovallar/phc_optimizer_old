@@ -10,7 +10,7 @@ def run_hpc(
     mpb_command_line_params: Dict[str, Any] = {},
     use_mpi: bool = True,
     cores: int = 4,
-    version: str = "mpb/1.11.1",
+    version: str = "mpb-dev/1.11.2-dev",
     wd: Union[str, os.PathLike] = os.getcwd(),
     auto_extract: bool = True,
     auto_plot: bool = True,
@@ -29,7 +29,7 @@ def run_hpc(
     cores : int
         Number of MPI cores to use.
     version : str
-        Module version string for MPB on DCC (e.g. 'mpb/1.11.1').
+        Module version string for MPB on DCC (e.g. 'mpb-dev/1.11.2-dev').
     wd : str or PathLike
         Working directory for execution and output files.
     auto_extract : bool, default True
@@ -61,6 +61,15 @@ def run_hpc(
         script_file = str(wd_path / "main.ctl")
         with open(script_file, "w") as f:
             f.write(script_str)
+
+    # Check if symmetry calculations are enabled (symmetries require single-core mpb)
+    has_symmetry = (
+        str(mpb_command_line_params.get("display_symmetry?", "")).lower() == "true" or
+        str(mpb_command_line_params.get("display-symmetry?", "")).lower() == "true"
+    )
+    if has_symmetry and use_mpi:
+        print("Note: MPB symmetry calculations do not support MPI parallel execution. Automatically running single-core mpb.")
+        use_mpi = False
 
     # Format MPB command line parameters (k=v pairs)
     params = " ".join(f"{k}={v}" for k, v in mpb_command_line_params.items())
@@ -278,7 +287,7 @@ def main() -> None:
             mpb_command_line_params=mpb_params,
             use_mpi=not args.no_mpi,
             cores=args.cores,
-            version="mpb/1.11.1",
+            version="mpb-dev/1.11.2-dev",
             wd=target_dir,
             auto_extract=True,
             auto_plot=True

@@ -45,3 +45,18 @@
         (print "SYM_DATA_END_" parity "
 ")))) ; Unique end tag
 
+
+; --- Unified Symmetry Display ---
+; Parameter flag to enable/disable symmetry output (can be set via CLI k=v)
+(define-param display-symmetry? false)
+(define-param display_symmetry? false)
+
+(define (display-symmetries . args)
+  (let ((show? (if (null? args)
+                   (or display-symmetry? display_symmetry?)
+                   (car args))))
+    (if show?
+        (let ((b2x (vector3-x (object-property-value geometry-lattice 'basis2))))
+          (if (< (abs b2x) 1e-4)
+              (display-symmetries-c4v)
+              (display-symmetries-c6v))))))
