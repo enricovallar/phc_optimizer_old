@@ -4,24 +4,15 @@
 ; ==============================================================================
 
 ; 1. Load Custom Modules
-(primitive-load-path "materials.ctl")
-(primitive-load-path "parity_functions.ctl")
-(primitive-load-path "shapes.ctl")
-(primitive-load-path "wyckoff.ctl")
-(primitive-load-path "custom_nonbloch_output.ctl")
-(primitive-load-path "lattices.ctl")
+(load-module "materials.ctl")
+(load-module "parity_functions.ctl")
+(load-module "shapes.ctl")
+(load-module "wyckoff.ctl")
+(load-module "custom_nonbloch_output.ctl")
+(load-module "lattices.ctl")
 
-; 2. Global MPB Parameters
-(set! deterministic? true)
-(set! num-bands 10)
-(set! resolution 32)
+; 2. Case-Specific Geometry Parameters
 (define-param h 0.5)
-
-; Dynamic mode execution flags (can be overridden via CLI k=v pairs)
-(define-param run-te? true)
-(define-param run-tm? true)
-(define-param run-zeven? false)
-(define-param run-zodd? false)
 
 ; 3. Define Materials
 (define slab-mat (make dielectric (epsilon 9.46)))
@@ -52,7 +43,7 @@
 (set! k-points (interpolate 10 (get-hex-path-circular kmag)))
 (display-kpath-labels hex-labels-circular)
 
-; Conditionally execute solvers
+; 7. Conditionally execute solvers based on dynamic flags (initialized in init.ctl)
 (if run-te? (run-te))
 (if run-tm? (run-tm))
 (if run-zeven? (run-zeven))

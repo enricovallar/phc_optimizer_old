@@ -18,8 +18,8 @@ You can run MPB simulations using `uv`:
 # Run with default options:
 uv run phc-runner
 
-# Specify custom target working directory and script:
-uv run phc-runner --dir work --script main.ctl --cores 8
+# Specify custom target working directory, script, cores, and MPB parameters:
+uv run phc-runner --dir work --script main.ctl --cores 8 -p h=0.6 r1=0.25 r2=0.15 resolution=64
 ```
 
 ### CLI Arguments (`phc-runner --help`)
@@ -29,6 +29,7 @@ uv run phc-runner --dir work --script main.ctl --cores 8
 | `--dir` | `-d` | Target working directory for execution & logs | Current Working Directory |
 | `--script` | `-s` | Control file (`.ctl`) to run | `example.ctl` |
 | `--cores` | `-c` | Number of MPI cores to use | `4` |
+| `--param` | `-p` | Pass key=value parameters to MPB (e.g. `-p h=0.6 r1=0.25 resolution=64`) | None |
 | `--no-mpi` | | Disable MPI parallel execution | False |
 
 ---
@@ -59,9 +60,16 @@ uv run phc-extractor -i work/output.out -o work/
 ```python
 from phc_nzi import run_hpc, extract_frequencies
 
-# 1. Run MPB simulation
+# 1. Run MPB simulation with custom parameters
 run_hpc(
     script="main.ctl",
+    mpb_command_line_params={
+        "h": 0.6,
+        "r1": 0.25,
+        "r2": 0.15,
+        "resolution": 64,
+        "num-bands": 12,
+    },
     use_mpi=True,
     cores=4,
     wd="work"

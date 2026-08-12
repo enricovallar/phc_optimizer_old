@@ -5,18 +5,10 @@
 (load-module "custom_nonbloch_output.ctl")
 (load-module "lattices.ctl")
 
-(set! deterministic? true)
-(set! num-bands 8)
-(set! resolution 32)
+; Case-specific geometric parameters
 (define-param h 0.5)
 (define-param r1 0.2)
 (define-param r2 0.1)
-
-; Dynamic mode execution flags (can be overridden via command line k=v pairs)
-(define-param run-te? true)
-(define-param run-tm? true)
-(define-param run-zeven? false)
-(define-param run-zodd? false)
 
 (define slab-mat (make dielectric (epsilon 9.46)))
 (define air-mat (make dielectric (epsilon 1)))
@@ -38,7 +30,7 @@
 (set! k-points (interpolate 10 (get-hex-path-circular kmag)))
 (display-kpath-labels hex-labels-circular)
 
-; Conditionally execute solvers based on dynamic flags
+; Conditionally execute solvers based on dynamic flags (initialized in init.ctl)
 (if run-te? (run-te))
 (if run-tm? (run-tm))
 (if run-zeven? (run-zeven))

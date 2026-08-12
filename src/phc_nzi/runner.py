@@ -188,6 +188,13 @@ def main() -> None:
         help="Number of MPI cores to use (default: 4)"
     )
     parser.add_argument(
+        "-p", "--param", "--params",
+        nargs="+",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Command line parameters to pass to MPB script in key=value format (e.g. -p h=0.6 r1=0.25 or -p resolution=64)"
+    )
+    parser.add_argument(
         "--no-mpi",
         action="store_true",
         help="Disable MPI parallel execution"
@@ -246,6 +253,23 @@ def main() -> None:
         mpb_params["run-tm?"] = "true"
         mpb_params["run-zeven?"] = "false"
         mpb_params["run-zodd?"] = "false"
+
+    # Parse CLI parameters if specified via -p / --param (supports key=value and space-separated key value)
+    if args.param:
+        for item_group in args.param:
+            i = 0
+            while i < len(item_group):
+                item = item_group[i]
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    mpb_params[k.strip()] = v.strip()
+                    i += 1
+                else:
+                    if i + 1 < len(item_group) and "=" not in item_group[i + 1]:
+                        mpb_params[item.strip()] = item_group[i + 1].strip()
+                        i += 2
+                    else:
+                        i += 1
 
     if input(f"Do you want to run the script '{script_path}' in directory '{target_dir}' with mode '{args.mode}'? (y/n): ").strip().lower() == "y":
         print(f"Running MPB script '{script_path}' in directory '{target_dir}' (mode: {args.mode})...")
