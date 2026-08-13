@@ -1075,11 +1075,23 @@ class BayesianOptimizer:
             top_b_num = max(vg_records[0].get("target_bands", [6])) if vg_records[0].get("target_bands") else "Top"
             delta_k = self.target_cfg.get("delta_k", 0.01)
 
-            # Fit a GP surrogate on group velocity
+            # Fit surrogate on group velocity using configured model type (GP, RF, ET, GBRT)
             try:
-                from skopt.learning import GaussianProcessRegressor
-                gp_vg = GaussianProcessRegressor(random_state=42)
-                gp_vg.fit(self.optimizer.space.transform(Xi_vg.tolist()), yi_vg)
+                model_type = str(self.opt_cfg.get("model", "GP")).upper()
+                if model_type in ("RF", "RANDOM_FOREST"):
+                    from skopt.learning import RandomForestRegressor
+                    reg_vg = RandomForestRegressor(random_state=42)
+                elif model_type in ("ET", "EXTRA_TREES"):
+                    from skopt.learning import ExtraTreesRegressor
+                    reg_vg = ExtraTreesRegressor(random_state=42)
+                elif model_type in ("GBRT", "GRADIENT_BOOSTING"):
+                    from skopt.learning import GradientBoostingQuantileRegressor
+                    reg_vg = GradientBoostingQuantileRegressor(random_state=42)
+                else:
+                    from skopt.learning import GaussianProcessRegressor
+                    reg_vg = GaussianProcessRegressor(random_state=42)
+
+                reg_vg.fit(self.optimizer.space.transform(Xi_vg.tolist()), yi_vg)
 
                 x1 = np.linspace(float(b1[0]), float(b1[1]), 150)
                 x2 = np.linspace(float(b2[0]), float(b2[1]), 150)
@@ -1087,7 +1099,7 @@ class BayesianOptimizer:
                 grid_pts = np.c_[X1.ravel(), X2.ravel()]
                 grid_trans = self.optimizer.space.transform(grid_pts.tolist())
 
-                mu_vg = gp_vg.predict(grid_trans).reshape(X1.shape)
+                mu_vg = reg_vg.predict(grid_trans).reshape(X1.shape)
             except Exception:
                 mu_vg = None
 
