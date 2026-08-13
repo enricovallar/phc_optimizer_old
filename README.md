@@ -193,6 +193,8 @@ target:
   irrep_occurrences: [1, 1, 1]
   degeneracy_tol: 0.001            # Degeneracy failsafe threshold for mode mixing
   target_cost: 0.0001              # Active learning cost threshold floor
+  check_slab_connectivity: true   # Set to true to invalidate disconnected dielectric geometries
+  epsilon_threshold: 1.1           # Dielectric threshold to identify matrix slab
   # Alternatively, bypass automatic irrep identification and specify exact mode indices:
   # bypass_irrep_identification: true
   # mode_indices: [2, 3, 4]

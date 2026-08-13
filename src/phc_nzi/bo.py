@@ -29,6 +29,7 @@ from phc_nzi.runner import run_hpc
 from phc_nzi.extractor import extract_frequencies
 from phc_nzi.symmetry import analyze_symmetries_from_log
 from phc_nzi.plotter import plot_band_structure, plot_epsilon
+from phc_nzi.geometry_check import check_slab_connectivity
 
 warnings.filterwarnings("ignore", category=UserWarning, module="skopt")
 
@@ -90,6 +91,9 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     target.setdefault("min_band", 2)
     target.setdefault("degeneracy_tol", 0.005)
     target.setdefault("target_cost", 0.0025)
+    target.setdefault("check_slab_connectivity", False)
+    target.setdefault("enforce_connectivity", False)
+    target.setdefault("epsilon_threshold", 1.1)
     config["target"] = target
 
     opt = config.get("optimizer", {})
@@ -362,6 +366,37 @@ class BayesianOptimizer:
             if out_log.is_file():
                 output_text = out_log.read_text()
 
+            # Dielectric slab connectivity check (if enabled)
+            conn_status = "NOT_CHECKED"
+            enforce_conn = bool(
+                self.target_cfg.get("check_slab_connectivity", False)
+                or self.target_cfg.get("enforce_connectivity", False)
+            )
+            if enforce_conn:
+                output_dir = Path(temp_dir) / "output"
+                eps_h5 = output_dir / "main-epsilon.h5"
+                if not eps_h5.exists():
+                    h5_files = list(output_dir.glob("*-epsilon.h5"))
+                    if h5_files:
+                        eps_h5 = h5_files[0]
+
+                if eps_h5.exists():
+                    thresh = float(self.target_cfg.get("epsilon_threshold", 1.1))
+                    min_neck = int(self.target_cfg.get("min_neck_width_px", 1))
+                    is_conn, num_comp, conn_msg = check_slab_connectivity(
+                        eps_h5, epsilon_threshold=thresh, check_pbc=True, min_neck_width_px=min_neck
+                    )
+                    if not is_conn:
+                        tracking_label = f"FAILED: Disconnected slab ({conn_msg})"
+                        conn_status = f"FAILED ({conn_msg})"
+                        return 1.0, 0.0, tracking_label, {}, [], [], conn_status
+                    else:
+                        conn_status = f"PASSED ({conn_msg})"
+                else:
+                    conn_status = "FAILED: Dielectric HDF5 grid file not found"
+                    tracking_label = f"FAILED: {conn_status}"
+                    return 1.0, 0.0, tracking_label, {}, [], [], conn_status
+
             extracted_data = extract_frequencies(output_path=out_log, save_data=False, verbose=False)
 
             symmetry_records = analyze_symmetries_from_log(output_text, freq_data=extracted_data)
@@ -394,7 +429,7 @@ class BayesianOptimizer:
 
                 if error_msg or not dynamic_bands:
                     tracking_label = f"FAILED: {error_msg}"
-                    return 1.0, 0.0, tracking_label, full_map, [], corrections
+                    return 1.0, 0.0, tracking_label, full_map, [], corrections, conn_status
                 tracking_label = f"Mapped to bands {dynamic_bands}"
                 target_bands = dynamic_bands
             else:
@@ -414,7 +449,7 @@ class BayesianOptimizer:
 
             pol_key = f"{pol}freqs"
             if pol_key not in extracted_data or "headers" not in extracted_data[pol_key]:
-                return 1.0, 0.0, "FAILED: Frequency extraction empty", full_map, target_bands, corrections
+                return 1.0, 0.0, "FAILED: Frequency extraction empty", full_map, target_bands, corrections, conn_status
 
             rows = extracted_data[pol_key]["rows"]
             headers = extracted_data[pol_key]["headers"]
@@ -444,10 +479,10 @@ class BayesianOptimizer:
             raw_cost = abs(freq_high - freq_low)
             normalized_cost = raw_cost / freq_middle if freq_middle > 0 else raw_cost
 
-            return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections
+            return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections, conn_status
 
     def objective(self, gen: int, param_values: List[float]) -> float:
-        cost, freq_dirac, label, full_map, target_bands, corrections = self._evaluate_single((gen, param_values))
+        cost, freq_dirac, label, full_map, target_bands, corrections, conn_status = self._evaluate_single((gen, param_values))
 
         with self.lock:
             self.eval_counter += 1
@@ -462,6 +497,7 @@ class BayesianOptimizer:
                 "raw_cost": cost,
                 "freq_dirac": freq_dirac,
                 "status": label,
+                "connectivity": conn_status,
                 "target_bands": target_bands,
                 "corrected": bool(corrections),
                 "corrections": [{"band": b, "old": old, "old_conf": old_conf, "new": new} for b, old, old_conf, new in corrections],
@@ -490,10 +526,12 @@ class BayesianOptimizer:
                 f.write("=" * 90 + "\n")
                 f.write(f"EVALUATION #{eval_idx:03d} (Generation {gen:02d})\n")
                 p_log_str = ", ".join(f"{k} = {v:.6f}" for k, v in param_dict.items())
-                f.write(f"Parameters : {p_log_str}\n")
-                f.write(f"Cost       : {cost:.6f} | Dirac Freq: {freq_dirac:.6f} | {label}\n")
+                f.write(f"Parameters   : {p_log_str}\n")
+                f.write(f"Cost         : {cost:.6f} | Dirac Freq: {freq_dirac:.6f} | {label}\n")
+                if conn_status != "NOT_CHECKED":
+                    f.write(f"Connectivity : {conn_status}\n")
                 if corrections:
-                    f.write(f"CORRECTED  : {corr_str}\n")
+                    f.write(f"CORRECTED    : {corr_str}\n")
                 f.write("-" * 90 + "\n")
                 if full_map:
                     corr_lookup = {b: (old, old_conf) for b, old, old_conf, new in corrections}

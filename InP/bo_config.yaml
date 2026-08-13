@@ -17,7 +17,7 @@ parameters:
 
 # Fixed geometry & simulation parameters
 fixed_parameters:
-  resolution: 16
+  resolution: 32
   num-bands: 10
 
 # Target band symmetry configuration
@@ -31,16 +31,19 @@ target:
   target_cost: 0.0025              # Target cost floor (2.5e-3 aligned with hBN notebook)
   bypass_irrep_identification: false                                          
   mode_indices: [4,5,6]          # Exact band indices to target  
+  check_slab_connectivity: true   # Or enforce_connectivity: true         
+  epsilon_threshold: 1.1
+  min_neck_width_px: 4             # Reject connections narrower than 4 grid  pixels wide
 
 # Bayesian Optimizer settings
 optimizer:
-  max_iterations: 2               # Total optimization generations
-  batch_size: 20                  # Evaluations per batch
-  initial_points: 64              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
+  max_iterations: 0               # Total optimization generations
+  batch_size: 32                  # Evaluations per batch
+  initial_points: 256              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
   initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
   model: "GP"                      # Base estimator surrogate model: "GP" (default)
   acq_func: "LCB"                  # Lower Confidence Bound acquisition function (from hBN notebook)
-  acq_func_kwargs: {kappa: 3.5}    # Kappa parameter for LCB (from hBN notebook)
+  acq_func_kwargs: {kappa: 6}    # Kappa parameter for LCB (from hBN notebook)
   objective_mode: "log"            # Cost mode: "log" (log10 cost)
   strategy: "cl_min"               # Constant liar strategy ("cl_min")
   save_surrogate_freq: 1           # Update bo_surrogate_map.png every N generations (0 = only at end)
