@@ -273,7 +273,8 @@ def extract_group_velocities(
     output_path: Union[str, os.PathLike] = "output.out",
     output_dir: Optional[Union[str, os.PathLike]] = None,
     save_data: bool = True,
-    freq_data: Optional[Dict[str, Any]] = None
+    freq_data: Optional[Dict[str, Any]] = None,
+    verbose: bool = True
 ) -> Dict[str, Any]:
     """
     Extract group velocity vectors and magnitudes from MPB log files (output.out).
@@ -288,6 +289,8 @@ def extract_group_velocities(
         Whether to save extracted group velocity data files to disk.
     freq_data : dict, optional
         Extracted frequency data for k-vector coordinate alignment.
+    verbose : bool, default True
+        Whether to print extraction progress to console.
 
     Returns:
     --------
@@ -428,23 +431,25 @@ def extract_group_velocities(
         if save_data:
             data_filepath = target_dir / f"{pol_vel_key}.data"
             write_data_file(headers, matrix_rows, data_filepath)
-            print(f"Extracted group velocities for '{pol_vel_key}' to '{data_filepath}'")
+            if verbose:
+                print(f"Extracted group velocities for '{pol_vel_key}' to '{data_filepath}'")
 
     results["flat_records"] = flat_records
 
     if save_data and flat_records:
-        save_group_velocities(flat_records, target_dir)
+        save_group_velocities(flat_records, target_dir, verbose=verbose)
 
     return results
 
 
-def save_group_velocities(records: List[Dict[str, Any]], target_dir: Path) -> None:
+def save_group_velocities(records: List[Dict[str, Any]], target_dir: Path, verbose: bool = True) -> None:
     """Save group velocity records to group_velocities.json file."""
     import json
 
     json_filepath = target_dir / "group_velocities.json"
     json_filepath.write_text(json.dumps(records, indent=2))
-    print(f"Extracted {len(records)} group velocity records to '{json_filepath}'")
+    if verbose:
+        print(f"Extracted {len(records)} group velocity records to '{json_filepath}'")
 
 
 def load_group_velocities(velocities_filepath: Union[str, os.PathLike]) -> List[Dict[str, Any]]:

@@ -514,7 +514,7 @@ class BayesianOptimizer:
                     vg_log = Path(vg_temp_dir) / "output" / "output.out"
                     if vg_log.is_file():
                         from phc_nzi.extractor import extract_group_velocities
-                        vg_data = extract_group_velocities(output_path=vg_log, save_data=False)
+                        vg_data = extract_group_velocities(output_path=vg_log, save_data=False, verbose=False)
                         flat_recs = vg_data.get("flat_records", [])
                         for rec_v in flat_recs:
                             if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) == top_band:
