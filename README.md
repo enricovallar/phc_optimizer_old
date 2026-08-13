@@ -10,6 +10,17 @@ Install `uv` (if not already installed) and sync the project virtual environment
 uv sync
 ```
 
+## Initializing a Simulation Directory (`phc-init`)
+
+Initialize a directory populated with fully documented `bo_config.yaml` and `main.ctl` template files:
+
+```bash
+# Initialize a new project directory (e.g. my_simulation):
+uv run phc-init my_simulation
+```
+
+---
+
 ## Running Simulations
 
 You can run MPB simulations using `uv`:

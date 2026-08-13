@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
+phc-init = "phc_nzi.init:main"
 phc-runner = "phc_nzi.runner:main"
 phc-extractor = "phc_nzi.extractor:main"
 phc-plotter = "phc_nzi.plotter:main"

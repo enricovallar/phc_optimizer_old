@@ -4,6 +4,7 @@ from .plotter import plot_band_structure, plot_epsilon
 from .transformer import transform_h5_data, rectify_h5_data, MPBDataOptions, MPBDataConverter
 from .symmetry import compute_projections, identify_irrep, detect_point_group, analyze_symmetries_from_log
 from .bo import BayesianOptimizer, run_bo, load_bo_config
+from .init import init_folder
 
 __all__ = [
     "run_hpc",
@@ -26,4 +27,5 @@ __all__ = [
     "BayesianOptimizer",
     "run_bo",
     "load_bo_config",
+    "init_folder",
 ]
