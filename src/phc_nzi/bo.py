@@ -514,15 +514,19 @@ class BayesianOptimizer:
             raw_cost = abs(freq_high - freq_low)
             normalized_cost = raw_cost / freq_middle if freq_middle > 0 else raw_cost
 
-            # Optional 2nd run: Group Velocity at small delta_k from Gamma for top target band
+            # Optional 2nd run: Group Velocity at small delta_k from Gamma for target bands
             vg_top_band = None
             compute_vg = bool(
                 self.target_cfg.get("compute_group_velocity", False)
                 or self.target_cfg.get("calculate_group_velocity", False)
             )
 
-            if compute_vg and target_bands:
-                top_band = max(target_bands)
+            # Option to compute vg only for optimal region (cost <= vg_cost_threshold, default 0.05)
+            vg_optimal_only = bool(self.target_cfg.get("vg_optimal_only", True))
+            vg_thresh = float(self.target_cfg.get("vg_cost_threshold", 0.05))
+            should_run_vg = compute_vg and target_bands and (not vg_optimal_only or normalized_cost <= vg_thresh)
+
+            if should_run_vg:
                 delta_k = float(self.target_cfg.get("delta_k", 0.01))
 
                 vg_params = dict(combined_params)
@@ -550,10 +554,18 @@ class BayesianOptimizer:
                         from phc_nzi.extractor import extract_group_velocities
                         vg_data = extract_group_velocities(output_path=vg_log, save_data=False, verbose=False)
                         flat_recs = vg_data.get("flat_records", [])
+
+                        # Take the MORE POSITIVE group velocity among all target_bands
+                        target_vgs = []
                         for rec_v in flat_recs:
-                            if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) == top_band:
-                                vg_top_band = float(rec_v.get("vg_mag", 0.0))
-                                break
+                            if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) in target_bands:
+                                vx_val = float(rec_v.get("vx", 0.0))
+                                if np.isnan(vx_val):
+                                    vx_val = float(rec_v.get("vg_mag", 0.0))
+                                target_vgs.append(vx_val)
+
+                        if target_vgs:
+                            vg_top_band = float(max(target_vgs))
 
             t_total = time.perf_counter() - t_start
             timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": t_run2, "t_total": t_total}
@@ -1130,13 +1142,76 @@ class BayesianOptimizer:
 
 
 
+    def _evaluate_group_velocity_at_point(
+        self, param_dict: Dict[str, float], target_bands: List[int]
+    ) -> float:
+        """
+        Runs a dedicated MPB simulation at k = (delta_k, 0, 0) for a specific parameter point
+        (e.g., GP surrogate peak), extracting the MOST POSITIVE group velocity among target_bands.
+        """
+        pol = self.target_cfg.get("polarization", "te").lower()
+        delta_k = float(self.target_cfg.get("delta_k", 0.01))
+
+        combined_params = {**self.fixed_params, **param_dict}
+        combined_params["display_symmetry?"] = "false"
+        combined_params["only_gamma?"] = "false"
+        combined_params["display_group_velocity?"] = "true"
+        combined_params["delta_k"] = delta_k
+        combined_params["delta_k_mode?"] = "true"
+
+        with tempfile.TemporaryDirectory() as vg_temp_dir:
+            res_vg = run_hpc(
+                script=self._get_script_path(),
+                mpb_command_line_params=combined_params,
+                use_mpi=False,
+                cores=self.sim_cfg.get("cores", 4),
+                wd=vg_temp_dir,
+                auto_extract=True,
+                auto_plot=False,
+                only_gamma=False,
+                verbose=False,
+            )
+            vg_log = Path(vg_temp_dir) / "output" / "output.out"
+            if vg_log.is_file():
+                from phc_nzi.extractor import extract_group_velocities
+                vg_data = extract_group_velocities(output_path=vg_log, save_data=False, verbose=False)
+                flat_recs = vg_data.get("flat_records", [])
+
+                target_vgs = []
+                for rec_v in flat_recs:
+                    if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) in target_bands:
+                        vx_val = float(rec_v.get("vx", 0.0))
+                        if np.isnan(vx_val):
+                            vx_val = float(rec_v.get("vg_mag", 0.0))
+                        target_vgs.append(vx_val)
+
+                if target_vgs:
+                    return float(max(target_vgs))
+
+        return 0.0
+
     def _plot_group_velocity_map(self, verbose: bool = True) -> None:
         """
-        Generates and saves a 2-panel figure of the top target band group velocity vg (in units of c)
-        computed at a small delta_k from Gamma.
+        Generates and saves a 2-panel figure of target band group velocity vg (in units of c)
+        computed at a small delta_k from Gamma for optimal/peak points.
         """
         import matplotlib.colors as mcolors
         from matplotlib.ticker import FormatStrFormatter
+
+        compute_vg = bool(
+            self.target_cfg.get("compute_group_velocity", False)
+            or self.target_cfg.get("calculate_group_velocity", False)
+        )
+
+        # Check if best optimal GP peak point needs group velocity calculation
+        if compute_vg and hasattr(self.optimizer, "yi") and len(self.optimizer.yi) > 0:
+            best_idx = int(np.argmin(self.optimizer.yi))
+            best_params = dict(zip(self.param_names, [float(x) for x in self.optimizer.Xi[best_idx]]))
+            best_rec = self.records[best_idx] if best_idx < len(self.records) else {}
+            if best_rec and best_rec.get("group_velocity") is None:
+                t_bands = best_rec.get("target_bands", [4, 5, 6])
+                vg_peak = self._evaluate_group_velocity_at_point(best_params, t_bands)
+                best_rec["group_velocity"] = vg_peak
 
         vg_records = [r for r in self.records if r.get("group_velocity") is not None]
         if not vg_records:
