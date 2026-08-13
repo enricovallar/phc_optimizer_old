@@ -329,6 +329,13 @@ class BayesianOptimizer:
                 self.dimensions.append(Real(float(bounds[0]), float(bounds[1]), name=name))
 
         n_jobs = self.opt_cfg.get("n_jobs", self.sim_cfg.get("parallel_workers", 1))
+        n_pts = self.opt_cfg.get("n_points", 1000)
+        n_restarts = self.opt_cfg.get("n_restarts_optimizer", 3)
+
+        acq_opt_kwargs = dict(self.opt_cfg.get("acq_optimizer_kwargs", {}))
+        acq_opt_kwargs.setdefault("n_points", n_pts)
+        acq_opt_kwargs.setdefault("n_restarts_optimizer", n_restarts)
+        acq_opt_kwargs.setdefault("n_jobs", n_jobs)
 
         self.optimizer = Optimizer(
             dimensions=self.dimensions,
@@ -337,6 +344,8 @@ class BayesianOptimizer:
             initial_point_generator=self.opt_cfg.get("initial_sampling", "sobol"),
             acq_func=self.opt_cfg.get("acq_func", "LCB"),
             acq_func_kwargs=self.opt_cfg.get("acq_func_kwargs", {"kappa": 3.5}),
+            acq_optimizer=self.opt_cfg.get("acq_optimizer", "auto"),
+            acq_optimizer_kwargs=acq_opt_kwargs,
             n_jobs=n_jobs,
             random_state=self.opt_cfg.get("random_state", 42),
         )
