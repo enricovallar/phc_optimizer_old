@@ -1091,10 +1091,17 @@ class BayesianOptimizer:
             except Exception:
                 mu_vg = None
 
-            vmin = float(np.min(yi_vg))
-            vmax = float(np.max(yi_vg))
+            # Colorbar limits based on mean +/- std deviation of group velocity
+            mean_vg = float(np.mean(yi_vg))
+            std_vg = float(np.std(yi_vg))
+
+            vmin = max(0.0, mean_vg - std_vg)
+            vmax = mean_vg + std_vg
             if vmax <= vmin:
-                vmax = vmin + 1e-4
+                vmin = float(np.min(yi_vg))
+                vmax = float(np.max(yi_vg))
+                if vmax <= vmin:
+                    vmax = vmin + 1e-4
 
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
