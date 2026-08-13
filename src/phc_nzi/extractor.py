@@ -8,7 +8,8 @@ from typing import Union, Dict, List, Optional, Any
 def extract_frequencies(
     output_path: Union[str, os.PathLike] = "output.out",
     output_dir: Optional[Union[str, os.PathLike]] = None,
-    save_data: bool = True
+    save_data: bool = True,
+    verbose: bool = True,
 ) -> Dict[str, Any]:
     """
     Extract frequency band data and k-path information from MPB log files (output.out).
@@ -86,7 +87,8 @@ def extract_frequencies(
             if save_data:
                 data_filepath = target_dir / f"{pol}.data"
                 write_data_file(header_cols, data_rows, data_filepath)
-                print(f"Extracted {len(data_rows)} k-points for '{pol}' to '{data_filepath}'")
+                if verbose:
+                    print(f"Extracted {len(data_rows)} k-points for '{pol}' to '{data_filepath}'")
 
     # Extract KPATH_LABELS if present in the log
     labels = extract_kpath_labels(lines)
@@ -95,7 +97,8 @@ def extract_frequencies(
         if save_data:
             labels_filepath = target_dir / "kpath_labels.data"
             labels_filepath.write_text(" ".join(labels) + "\n")
-            print(f"Extracted k-path labels {labels} to '{labels_filepath}'")
+            if verbose:
+                print(f"Extracted k-path labels {labels} to '{labels_filepath}'")
 
     # Extract symmetry / irrep data if present in log
     full_text = out_file.read_text()
@@ -104,8 +107,10 @@ def extract_frequencies(
             output_path=out_file,
             output_dir=target_dir,
             save_data=save_data,
-            freq_data=extracted_data
+            freq_data=extracted_data,
+            verbose=verbose,
         )
+
         if sym_records:
             extracted_data["symmetries"] = sym_records
 
@@ -170,7 +175,8 @@ def extract_symmetries(
     output_path: Union[str, os.PathLike] = "output.out",
     output_dir: Optional[Union[str, os.PathLike]] = None,
     save_data: bool = True,
-    freq_data: Optional[Dict[str, Any]] = None
+    freq_data: Optional[Dict[str, Any]] = None,
+    verbose: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Extract symmetry characters and irrep classifications at Gamma from MPB log files.
@@ -183,13 +189,7 @@ def extract_symmetries(
         Target directory to save symmetries.data and symmetries.json.
     save_data : bool, default True
         Whether to save extracted symmetries to disk.
-    freq_data : dict, optional
-        Extracted frequency data for frequency correlation.
-
-    Returns:
-    --------
-    list of dict
-        List of irrep classification dictionaries per band and parity.
+    Extract symmetry character expectation values and project onto irreps.
     """
     from .symmetry import analyze_symmetries_from_log
 
@@ -207,18 +207,19 @@ def extract_symmetries(
     records = analyze_symmetries_from_log(text, freq_data=freq_data)
 
     if records and save_data:
-        save_symmetries(records, target_dir)
+        save_symmetries(records, target_dir, verbose=verbose)
 
     return records
 
 
-def save_symmetries(records: List[Dict[str, Any]], target_dir: Path) -> None:
+def save_symmetries(records: List[Dict[str, Any]], target_dir: Path, verbose: bool = True) -> None:
     """Save extracted symmetry records to symmetries.json file."""
     import json
 
     json_filepath = target_dir / "symmetries.json"
     json_filepath.write_text(json.dumps(records, indent=2))
-    print(f"Extracted {len(records)} band symmetry irreps to '{json_filepath}'")
+    if verbose:
+        print(f"Extracted {len(records)} band symmetry irreps to '{json_filepath}'")
 
 
 def load_symmetries(symmetries_filepath: Union[str, os.PathLike]) -> List[Dict[str, Any]]:

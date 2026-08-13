@@ -1,0 +1,49 @@
+# ==============================================================================
+# Photonic Crystal NZI Bayesian Optimization Configuration
+# ==============================================================================
+
+simulation:
+  ctl_script: "main.ctl"          # Use main.ctl in work directory
+  work_dir: "work"
+  output_dir: "bo_output"         # Dedicated output folder inside work/bo_output/
+  cores: 1
+  only_gamma: true                 # Evaluate ONLY Gamma point during BO for 10x-50x speedup!
+
+# Optimization parameters (continuous search bounds for r1, r2)
+# Note: h is not included in variable search bounds
+parameters:
+  r1: [0.2, 0.4]
+  r2: [0.2, 0.4]
+
+# Fixed geometry & simulation parameters
+fixed_parameters:
+  resolution: 16
+  num-bands: 10
+
+# Target band symmetry configuration
+target:
+  symmetry_group: "C4v"            # C4v symmetry for square lattice in main.ctl
+  polarization: "te"
+  target_irreps: ["A_2", "E", "E"]
+  irrep_occurrences: [2, 1, 1]
+  min_band: 2                      # Minimum band index to check (excludes Band 1 - fundamental acoustic mode)
+  degeneracy_tol: 0.00005           # Degeneracy tolerance (5e-3 aligned with hBN notebook)
+  target_cost: 0.0025              # Target cost floor (2.5e-3 aligned with hBN notebook)
+  bypass_irrep_identification: false                                          
+  mode_indices: [4,5,6]          # Exact band indices to target  
+
+# Bayesian Optimizer settings
+optimizer:
+  max_iterations: 2               # Total optimization generations
+  batch_size: 20                  # Evaluations per batch
+  initial_points: 64              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
+  initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
+  model: "GP"                      # Base estimator surrogate model: "GP" (default)
+  acq_func: "LCB"                  # Lower Confidence Bound acquisition function (from hBN notebook)
+  acq_func_kwargs: {kappa: 3.5}    # Kappa parameter for LCB (from hBN notebook)
+  objective_mode: "log"            # Cost mode: "log" (log10 cost)
+  strategy: "cl_min"               # Constant liar strategy ("cl_min")
+  save_surrogate_freq: 1           # Update bo_surrogate_map.png every N generations (0 = only at end)
+  random_state: 42
+  grid_evaluation: false         # Set to true (or bypass_optimization: true) to bypass BO
+  grid_resolution: [16, 16]        # Grid points per parameter dimension (e.g.  8x8 = 64 points)

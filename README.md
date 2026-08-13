@@ -144,4 +144,78 @@ When `--group-velocity` (or `display-group-velocity?=true`) is enabled, the runn
 * **`tevelocity.data` / `tmvelocity.data`**: Matrix format with band-by-band components and speeds matching the shape of `tefreqs.data`.
 * **`group_velocities.json`**: Structured JSON file for programmatic reading.
 
+---
+
+## Bayesian Optimization (`phc-bo`) for Dirac Cone Search
+
+Find geometric parameters that minimize the frequency gap between target symmetry representations (e.g., $A_2 + E$) at the $\Gamma$ point using Gaussian Process surrogate modeling.
+
+### CLI Usage
+
+```bash
+# Run Bayesian Optimization with default config (ctl/bo_config.yaml):
+uv run phc-bo --config ctl/bo_config.yaml --dir work
+```
+
+### Optimization Configuration (`bo_config.yaml`)
+
+```yaml
+simulation:
+  ctl_script: "example.ctl"
+  work_dir: "work"
+  output_dir: "bo_output"
+  cores: 4
+  only_gamma: true                 # Evaluate ONLY Gamma point during BO iterations (10x-50x speedup!)
+
+parameters:
+  r1: [0.15, 0.35]                 # Continuous bounds for r1
+  r2: [0.15, 0.35]                 # Continuous bounds for r2
+
+fixed_parameters:
+  resolution: 64
+  num-bands: 12
+
+target:
+  symmetry_group: "C4v"            # Point group ("C4v" or "C6v")
+  polarization: "te"               # Polarization ("te" or "tm")
+  target_irreps: ["A_2", "E", "E"] # Irrep multiplet to form Dirac cone
+  irrep_occurrences: [1, 1, 1]
+  degeneracy_tol: 0.001            # Degeneracy failsafe threshold for mode mixing
+  target_cost: 0.0001              # Active learning cost threshold floor
+  # Alternatively, bypass automatic irrep identification and specify exact mode indices:
+  # bypass_irrep_identification: true
+  # mode_indices: [2, 3, 4]
+
+optimizer:
+  max_iterations: 15
+  batch_size: 4
+  acq_func: "LCB"                  # "LCB" (Lower Confidence Bound) or "gp_hedge"
+  acq_func_kwargs: {kappa: 3.5}
+  objective_mode: "log"            # "log" (log10 cost) or "linear"
+  strategy: "cl_min"
+  grid_evaluation: false           # Set to true (or bypass_optimization: true) to evaluate uniform grid & fit GP model
+  grid_resolution: [10, 10]        # Grid resolution per dimension (e.g. 10x10)
+```
+
+### Python API Usage
+
+```python
+from phc_nzi import run_bo, BayesianOptimizer
+
+# Run optimization using YAML configuration
+results = run_bo(config_path="ctl/bo_config.yaml", work_dir="work")
+
+print("Optimal parameters:", results["optimal_parameters"])
+```
+
+### Generated Optimization Output Files (`work/bo_output/`):
+
+* **`bo_trajectory.data`**: Tabular log of evaluation parameter sets, gap costs, and Dirac frequencies.
+* **`bo_irreps.log`**: Detailed log of symmetry irrep mappings and triggered failsafe corrections.
+* **`bo_model.pkl`**: Serialized `skopt` Gaussian Process model checkpoint.
+* **`bo_convergence.png`**: Convergence trajectory plot (cost vs. evaluation count).
+* **`best_params.json`**: Structured JSON containing the optimal parameters found.
+* **`band_structure_optimal.png`**: Full k-path band structure plot evaluated at the optimal parameters.
+
+
 

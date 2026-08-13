@@ -10,25 +10,25 @@
 (define-param r1 0.2)
 (define-param r2 0.1)
 
-(define matrix-mat (make dielectric (epsilon 1)))
-(define atom-mat (make dielectric (epsilon 12.11)))
+(define matrix-mat (make dielectric (epsilon 9.47)))
+(define atom-mat (make dielectric (epsilon 1)))
 
-(set! geometry-lattice (make-hexagonal-lattice no-size))
+(set! geometry-lattice (make-square-lattice no-size))
 (define background-slab
   (make block (size (vector3 1e20 1e20 h))
               (center (vector3 0 0 0))
               (material matrix-mat)))
 (define shapes-1
   (map (lambda (pos) (make-param-cylinder pos h r1 atom-mat))
-       (get-C6v-1a)))
+       (get-C4v-1a)))
 (define shapes-2
   (map (lambda (pos) (make-param-cylinder pos h r2 atom-mat))
-       (get-C6v-3c)))
+       (get-C4v-1b)))
 (set! geometry (make-superposition background-slab (list shapes-1 shapes-2)))
 
 (define-param kmag 0.1)
-(set! k-points (interpolate 10 (get-hex-path-circular kmag)))
-(display-kpath-labels hex-labels-circular)
+(set! k-points (interpolate 10 (get-sq-path-circular kmag)))
+(display-kpath-labels sq-labels-circular)
 
 ; Override k-points to ONLY Gamma point if only-gamma? flag is set
 (if (or only-gamma? only_gamma?)

@@ -14,6 +14,8 @@ def run_hpc(
     wd: Union[str, os.PathLike] = os.getcwd(),
     auto_extract: bool = True,
     auto_plot: bool = True,
+    only_gamma: bool = False,
+    verbose: bool = True,
 ) -> subprocess.CompletedProcess:
     """
     Run an MPB simulation using HPC module tools on DTU DCC cluster.
@@ -70,6 +72,9 @@ def run_hpc(
     if has_symmetry and use_mpi:
         print("Note: MPB symmetry calculations do not support MPI parallel execution. Automatically running single-core mpb.")
         use_mpi = False
+
+    if only_gamma:
+        mpb_command_line_params["only-gamma?"] = "true"
 
     # Format MPB command line parameters (k=v pairs)
     params = " ".join(f"{k}={v}" for k, v in mpb_command_line_params.items())
@@ -134,9 +139,11 @@ def run_hpc(
     if auto_extract and result.returncode == 0 and output_file.is_file():
         try:
             from .extractor import extract_frequencies
-            extract_frequencies(output_path=output_file, output_dir=output_dir, save_data=True)
+            extract_frequencies(output_path=output_file, output_dir=output_dir, save_data=True, verbose=verbose)
         except Exception as e:
-            print(f"Note: Automatic data extraction notice: {e}")
+            if verbose:
+                print(f"Note: Automatic data extraction notice: {e}")
+
 
     # Automatically generate figures in output/ if auto_plot is enabled
     if auto_plot and result.returncode == 0:

@@ -1,0 +1,44 @@
+# ==============================================================================
+# Photonic Crystal NZI Bayesian Optimization Configuration
+# ==============================================================================
+
+simulation:
+  ctl_script: "example.ctl"        # MPB scheme control script to execute
+  work_dir: "work"                 # Working directory
+  output_dir: "bo_output"          # Dedicated output folder for BO outputs & logs
+  cores: 4                         # CPU cores per simulation evaluation
+  only_gamma: true                 # Evaluate ONLY Gamma point during BO iterations for 10x-50x speedup!
+
+# Optimization parameters (continuous search bounds)
+# Note: h is not included in variable search bounds
+parameters:
+  r1: [0.15, 0.35]                 # Radius of inner shapes (Air cylinder/daisy)
+  r2: [0.15, 0.35]                 # Radius of outer shapes
+
+# Fixed geometry & simulation parameters passed to MPB
+fixed_parameters:
+  resolution: 64
+  num-bands: 12
+
+# Target band symmetry configuration for Dirac-like cone search
+target:
+  symmetry_group: "C4v"            # Point group symmetry ("C4v" or "C6v")
+  polarization: "te"               # Polarization ("te" or "tm")
+  target_irreps: ["A_2", "E", "E"] # Irreps to form Dirac cone multiplet
+  irrep_occurrences: [1, 1, 1]     # Which occurrence of each irrep to track
+  min_band: 2                      # Minimum band index to check (excludes Band 1 - the acoustic branch)
+  degeneracy_tol: 0.001            # Failsafe frequency tolerance for degenerate mode retrieval
+  target_cost: 0.0001              # Active learning cost floor threshold (stops overfitting below gap resolution)
+
+# Bayesian Optimizer settings
+optimizer:
+  max_iterations: 20               # Number of optimization generations
+  batch_size: 4                    # Evaluations per generation batch
+  initial_points: 8                # Total initial quasi-random points before surrogate fitting (Power of 2 aligned for Sobol)
+  initial_sampling: "sobol"        # Initial sampling method: "sobol" (default), "lhs" (Latin Hypercube), "halton", "random"
+  model: "GP"                      # Base estimator surrogate model: "GP" (Gaussian Process, default), "RF", "ET"
+  acq_func: "gp_hedge"             # Acquisition function: "gp_hedge" (default), "EI", "PI", "LCB"
+  objective_mode: "log"            # Cost mode: "log" (log10 cost) or "linear"
+  strategy: "cl_min"               # Constant liar strategy ("cl_min", "cl_mean", "cl_max")
+  save_surrogate_freq: 0           # Update bo_surrogate_map.png every N generations (0 = only at end)
+  random_state: 42

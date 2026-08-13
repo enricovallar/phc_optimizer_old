@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 from typing import Union, List, Optional, Tuple, Dict, Any
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import h5py
 
@@ -189,7 +191,7 @@ def plot_epsilon(
     rectify: bool = True,
     options: Optional[Any] = None,
     slice_idx: Optional[int] = None,
-    cmap: str = "viridis",
+    cmap: str = "managua_r",
     title: str = "Dielectric Function Grid (Epsilon)",
     show: bool = False,
     dpi: int = 300,

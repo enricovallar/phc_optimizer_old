@@ -29,3 +29,8 @@
 ; Dynamic group velocity display flags
 (define-param display-group-velocity? false)
 (define-param display_group_velocity? false)
+
+; Dynamic k-path override (can be set via CLI k=v pair to evaluate ONLY Gamma point)
+(define-param only-gamma? false)
+(define-param only_gamma? false)
+

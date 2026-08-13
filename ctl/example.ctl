@@ -43,6 +43,11 @@
 (set! k-points (interpolate 10 (get-hex-path-circular kmag)))
 (display-kpath-labels hex-labels-circular)
 
+; Override k-points to ONLY Gamma point if only-gamma? flag is set
+(if (or only-gamma? only_gamma?)
+    (set! k-points (list (vector3 0 0 0))))
+
+
 ; 7. Conditionally execute solvers based on dynamic flags (initialized in init.ctl)
 (if run-te? (run-solver-with-callbacks run-te))
 (if run-tm? (run-solver-with-callbacks run-tm))
