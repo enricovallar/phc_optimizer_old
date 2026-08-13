@@ -34,6 +34,8 @@ target:
   check_slab_connectivity: true   # Or enforce_connectivity: true         
   epsilon_threshold: 1.1
   min_neck_width_px: 4             # Reject connections narrower than 4 grid  pixels wide
+  compute_group_velocity: true   # Enables 2nd run for group velocity calculation 
+  delta_k: 0.001                  # Offset from Gamma point (k = (delta_k, 0, 0))
 
 # Bayesian Optimizer settings
 optimizer:
