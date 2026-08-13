@@ -392,13 +392,13 @@ class BayesianOptimizer:
                     if not is_conn:
                         tracking_label = f"FAILED: Disconnected slab ({conn_msg})"
                         conn_status = f"FAILED ({conn_msg})"
-                        return 1.0, 0.0, tracking_label, {}, [], [], conn_status
+                        return 1.0, 0.0, tracking_label, {}, [], [], conn_status, None
                     else:
                         conn_status = f"PASSED ({conn_msg})"
                 else:
                     conn_status = "FAILED: Dielectric HDF5 grid file not found"
                     tracking_label = f"FAILED: {conn_status}"
-                    return 1.0, 0.0, tracking_label, {}, [], [], conn_status
+                    return 1.0, 0.0, tracking_label, {}, [], [], conn_status, None
 
             extracted_data = extract_frequencies(output_path=out_log, save_data=False, verbose=False)
 
@@ -432,7 +432,7 @@ class BayesianOptimizer:
 
                 if error_msg or not dynamic_bands:
                     tracking_label = f"FAILED: {error_msg}"
-                    return 1.0, 0.0, tracking_label, full_map, [], corrections, conn_status
+                    return 1.0, 0.0, tracking_label, full_map, [], corrections, conn_status, None
                 tracking_label = f"Mapped to bands {dynamic_bands}"
                 target_bands = dynamic_bands
             else:
@@ -452,7 +452,7 @@ class BayesianOptimizer:
 
             pol_key = f"{pol}freqs"
             if pol_key not in extracted_data or "headers" not in extracted_data[pol_key]:
-                return 1.0, 0.0, "FAILED: Frequency extraction empty", full_map, target_bands, corrections, conn_status
+                return 1.0, 0.0, "FAILED: Frequency extraction empty", full_map, target_bands, corrections, conn_status, None
 
             rows = extracted_data[pol_key]["rows"]
             headers = extracted_data[pol_key]["headers"]
@@ -515,13 +515,11 @@ class BayesianOptimizer:
                     if vg_log.is_file():
                         from phc_nzi.extractor import extract_group_velocities
                         vg_data = extract_group_velocities(output_path=vg_log, save_data=False)
-                        pol_vg_key = f"{pol}velocity"
-                        if pol_vg_key in vg_data:
-                            rows_vg = vg_data[pol_vg_key].get("rows", [])
-                            for r_v in rows_vg:
-                                if int(r_v.get("band", 0)) == top_band:
-                                    vg_top_band = float(r_v.get("vg_mag", 0.0))
-                                    break
+                        flat_recs = vg_data.get("flat_records", [])
+                        for rec_v in flat_recs:
+                            if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) == top_band:
+                                vg_top_band = float(rec_v.get("vg_mag", 0.0))
+                                break
 
             return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections, conn_status, vg_top_band
 
