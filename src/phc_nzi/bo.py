@@ -348,13 +348,21 @@ class BayesianOptimizer:
         self.eval_counter = 0
 
 
-    def _evaluate_single(self, args: Tuple[int, List[float]]) -> Tuple[float, float, str, Dict[int, Any], List[int], List[Tuple[int, str, str]]]:
+    def _evaluate_single(
+        self, args: Tuple[int, List[float]]
+    ) -> Tuple[float, float, str, Dict[int, Any], List[int], List[Tuple[int, str, str]], str, Any, Dict[str, float]]:
+        t_start = time.perf_counter()
+        t_geom = 0.0
+        t_run1 = 0.0
+        t_run2 = 0.0
+
         gen, param_values = args
         param_dict = dict(zip(self.param_names, param_values))
         combined_params = {**self.fixed_params, **param_dict}
         combined_params["display_symmetry?"] = "true"
 
         with tempfile.TemporaryDirectory() as temp_dir:
+            t_run1_0 = time.perf_counter()
             res = run_hpc(
                 script=self._get_script_path(),
                 mpb_command_line_params=combined_params,
@@ -366,6 +374,7 @@ class BayesianOptimizer:
                 only_gamma=self.sim_cfg.get("only_gamma", True),
                 verbose=False,
             )
+            t_run1 = time.perf_counter() - t_run1_0
 
             out_log = Path(temp_dir) / "output" / "output.out"
             output_text = ""
@@ -379,6 +388,7 @@ class BayesianOptimizer:
                 or self.target_cfg.get("enforce_connectivity", False)
             )
             if enforce_conn:
+                t_geom_0 = time.perf_counter()
                 output_dir = Path(temp_dir) / "output"
                 eps_h5 = output_dir / "main-epsilon.h5"
                 if not eps_h5.exists():
@@ -392,16 +402,22 @@ class BayesianOptimizer:
                     is_conn, num_comp, conn_msg = check_slab_connectivity(
                         eps_h5, epsilon_threshold=thresh, check_pbc=True, min_neck_width_px=min_neck
                     )
+                    t_geom = time.perf_counter() - t_geom_0
                     if not is_conn:
                         tracking_label = f"FAILED: Disconnected slab ({conn_msg})"
                         conn_status = f"FAILED ({conn_msg})"
-                        return 1.0, 0.0, tracking_label, {}, [], [], conn_status, None
+                        t_total = time.perf_counter() - t_start
+                        timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": 0.0, "t_total": t_total}
+                        return 1.0, 0.0, tracking_label, {}, [], [], conn_status, None, timing_dict
                     else:
                         conn_status = f"PASSED ({conn_msg})"
                 else:
+                    t_geom = time.perf_counter() - t_geom_0
                     conn_status = "FAILED: Dielectric HDF5 grid file not found"
                     tracking_label = f"FAILED: {conn_status}"
-                    return 1.0, 0.0, tracking_label, {}, [], [], conn_status, None
+                    t_total = time.perf_counter() - t_start
+                    timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": 0.0, "t_total": t_total}
+                    return 1.0, 0.0, tracking_label, {}, [], [], conn_status, None, timing_dict
 
             extracted_data = extract_frequencies(output_path=out_log, save_data=False, verbose=False)
 
@@ -435,7 +451,9 @@ class BayesianOptimizer:
 
                 if error_msg or not dynamic_bands:
                     tracking_label = f"FAILED: {error_msg}"
-                    return 1.0, 0.0, tracking_label, full_map, [], corrections, conn_status, None
+                    t_total = time.perf_counter() - t_start
+                    timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": 0.0, "t_total": t_total}
+                    return 1.0, 0.0, tracking_label, full_map, [], corrections, conn_status, None, timing_dict
                 tracking_label = f"Mapped to bands {dynamic_bands}"
                 target_bands = dynamic_bands
             else:
@@ -455,7 +473,9 @@ class BayesianOptimizer:
 
             pol_key = f"{pol}freqs"
             if pol_key not in extracted_data or "headers" not in extracted_data[pol_key]:
-                return 1.0, 0.0, "FAILED: Frequency extraction empty", full_map, target_bands, corrections, conn_status, None
+                t_total = time.perf_counter() - t_start
+                timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": 0.0, "t_total": t_total}
+                return 1.0, 0.0, "FAILED: Frequency extraction empty", full_map, target_bands, corrections, conn_status, None, timing_dict
 
             rows = extracted_data[pol_key]["rows"]
             headers = extracted_data[pol_key]["headers"]
@@ -503,6 +523,7 @@ class BayesianOptimizer:
                 vg_params["delta_k_mode?"] = "true"
 
                 with tempfile.TemporaryDirectory() as vg_temp_dir:
+                    t_run2_0 = time.perf_counter()
                     res_vg = run_hpc(
                         script=self._get_script_path(),
                         mpb_command_line_params=vg_params,
@@ -514,6 +535,7 @@ class BayesianOptimizer:
                         only_gamma=False,
                         verbose=False,
                     )
+                    t_run2 = time.perf_counter() - t_run2_0
                     vg_log = Path(vg_temp_dir) / "output" / "output.out"
                     if vg_log.is_file():
                         from phc_nzi.extractor import extract_group_velocities
@@ -524,15 +546,18 @@ class BayesianOptimizer:
                                 vg_top_band = float(rec_v.get("vg_mag", 0.0))
                                 break
 
-            return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections, conn_status, vg_top_band
+            t_total = time.perf_counter() - t_start
+            timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": t_run2, "t_total": t_total}
+            return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections, conn_status, vg_top_band, timing_dict
 
     def objective(self, gen: int, param_values: List[float]) -> float:
-        cost, freq_dirac, label, full_map, target_bands, corrections, conn_status, vg_top_band = self._evaluate_single((gen, param_values))
+        cost, freq_dirac, label, full_map, target_bands, corrections, conn_status, vg_top_band, timing_dict = self._evaluate_single((gen, param_values))
 
         with self.lock:
             self.eval_counter += 1
             eval_idx = self.eval_counter
 
+            debug_t = bool(self.sim_cfg.get("debug_timing", False) or self.opt_cfg.get("debug_timing", False))
             param_dict = dict(zip(self.param_names, param_values))
             corr_str = ", ".join(f"Band {b}: {old} (conf = {old_conf:.3f}) -> {new}" for b, old, old_conf, new in corrections) if corrections else ""
             rec = {
@@ -545,6 +570,7 @@ class BayesianOptimizer:
                 "status": label,
                 "connectivity": conn_status,
                 "target_bands": target_bands,
+                "timing": timing_dict,
                 "corrected": bool(corrections),
                 "corrections": [{"band": b, "old": old, "old_conf": old_conf, "new": new} for b, old, old_conf, new in corrections],
                 "full_map": {
@@ -563,8 +589,9 @@ class BayesianOptimizer:
             # 1. Write tabular trajectory log
             with open(self.data_file, "a") as f:
                 p_str = ", ".join(f"{k}: {v:.6f}" for k, v in param_dict.items())
+                t_str = f" | time: {timing_dict['t_total']:.2f}s (geom: {timing_dict['t_geom']:.3f}s, run1: {timing_dict['t_run1']:.2f}s, run2: {timing_dict['t_run2']:.2f}s)" if debug_t else ""
                 f.write(
-                    f"Eval: {eval_idx:03d} | Gen: {gen:02d} | {p_str} | cost: {cost:.6f} | freq_dirac: {freq_dirac:.6f} | [{label}]\n"
+                    f"Eval: {eval_idx:03d} | Gen: {gen:02d} | {p_str} | cost: {cost:.6f} | freq_dirac: {freq_dirac:.6f}{t_str} | [{label}]\n"
                 )
 
             # 2. Write detailed human-readable irreps log (bo_irreps.log)
@@ -576,6 +603,8 @@ class BayesianOptimizer:
                 f.write(f"Cost         : {cost:.6f} | Dirac Freq: {freq_dirac:.6f} | {label}\n")
                 if conn_status != "NOT_CHECKED":
                     f.write(f"Connectivity : {conn_status}\n")
+                if debug_t:
+                    f.write(f"Timing       : total {timing_dict['t_total']:.2f}s (geom {timing_dict['t_geom']:.3f}s, run1 {timing_dict['t_run1']:.2f}s, run2 {timing_dict['t_run2']:.2f}s)\n")
                 if vg_top_band is not None:
                     top_b_idx = max(target_bands) if target_bands else 0
                     d_k = self.target_cfg.get("delta_k", 0.01)
@@ -736,8 +765,13 @@ class BayesianOptimizer:
 
             pbar = tqdm(total=total_generations, desc="BO Progress", unit="gen")
             for gen in range(total_generations):
-                x_batch = self.optimizer.ask(n_points=batch_size, strategy=strategy)
+                t_gen_start = time.perf_counter()
 
+                t_ask_0 = time.perf_counter()
+                x_batch = self.optimizer.ask(n_points=batch_size, strategy=strategy)
+                t_ask = time.perf_counter() - t_ask_0
+
+                t_workers_0 = time.perf_counter()
                 if workers > 1:
                     with ThreadPoolExecutor(max_workers=workers) as executor:
                         futures = [
@@ -746,10 +780,48 @@ class BayesianOptimizer:
                         y_batch = [f.result() for f in futures]
                 else:
                     y_batch = [self.objective(gen + 1, x) for x in x_batch]
+                t_workers = time.perf_counter() - t_workers_0
 
+                t_tell_0 = time.perf_counter()
                 self.optimizer.tell(x_batch, y_batch)
+                t_tell = time.perf_counter() - t_tell_0
+
+                t_gen_total = time.perf_counter() - t_gen_start
                 best_score = min(self.optimizer.yi)
                 current_evals = len(self.optimizer.Xi)
+
+                debug_t = bool(self.sim_cfg.get("debug_timing", False) or self.opt_cfg.get("debug_timing", False))
+                if debug_t:
+                    gen_recs = self.records[-len(x_batch):]
+                    geom_times = [r["timing"]["t_geom"] for r in gen_recs if "timing" in r]
+                    run1_times = [r["timing"]["t_run1"] for r in gen_recs if "timing" in r]
+                    run2_times = [r["timing"]["t_run2"] for r in gen_recs if "timing" in r]
+
+                    avg_geom = float(np.mean(geom_times)) if geom_times else 0.0
+                    avg_r1 = float(np.mean(run1_times)) if run1_times else 0.0
+                    min_r1 = float(np.min(run1_times)) if run1_times else 0.0
+                    max_r1 = float(np.max(run1_times)) if run1_times else 0.0
+
+                    avg_r2 = float(np.mean(run2_times)) if run2_times else 0.0
+                    min_r2 = float(np.min(run2_times)) if run2_times else 0.0
+                    max_r2 = float(np.max(run2_times)) if run2_times else 0.0
+
+                    summary_lines = [
+                        "=" * 70,
+                        f"GENERATION {gen+1:02d} TIMING SUMMARY ({len(x_batch)} Parallel Workers)",
+                        "-" * 70,
+                        f"Geometry Continuity Check : avg {avg_geom:.3f} s",
+                        f"MPB Run 1 (Gamma & Irreps): avg {avg_r1:.2f} s | min {min_r1:.2f} s | max {max_r1:.2f} s",
+                        f"MPB Run 2 (Group Velocity): avg {avg_r2:.2f} s | min {min_r2:.2f} s | max {max_r2:.2f} s",
+                        f"ML Acquisition Search (ask):     {t_ask:.3f} s",
+                        f"ML Model Update (tell)     :     {t_tell:.3f} s",
+                        f"Generation Total Wall Time :     {t_gen_total:.2f} s",
+                        "=" * 70 + "\n",
+                    ]
+                    summary_text = "\n".join(summary_lines)
+                    tqdm.write(summary_text)
+                    with open(self.irrep_log_file, "a") as f:
+                        f.write(summary_text)
 
                 if gen < initial_generations:
                     phase_str = f"Initial Sobol ({current_evals}/{n_initial_pts} pts)"

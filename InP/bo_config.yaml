@@ -8,6 +8,7 @@ simulation:
   output_dir: "bo_output"         # Dedicated output folder inside work/bo_output/
   cores: 1
   only_gamma: true                 # Evaluate ONLY Gamma point during BO for 10x-50x speedup!
+  debug_timing: true               # Enable detailed timing breakdown logs & summary reports
 
 # Optimization parameters (continuous search bounds for r1, r2)
 # Note: h is not included in variable search bounds
@@ -28,7 +29,7 @@ target:
   irrep_occurrences: [2, 1, 1]
   min_band: 2                      # Minimum band index to check (excludes Band 1 - fundamental acoustic mode)
   degeneracy_tol: 0.00005           # Degeneracy tolerance (5e-3 aligned with hBN notebook)
-  target_cost: 0.0025              # Target cost floor (2.5e-3 aligned with hBN notebook)
+  target_cost: 0.0015              # Target cost floor (2.5e-3 aligned with hBN notebook)
   bypass_irrep_identification: false                                          
   mode_indices: [4,5,6]          # Exact band indices to target  
   check_slab_connectivity: true   # Or enforce_connectivity: true         
@@ -39,16 +40,22 @@ target:
 
 # Bayesian Optimizer settings
 optimizer:
-  max_iterations: 0               # Total optimization generations
+  max_iterations: 2               # Total optimization generations
   batch_size: 32                  # Evaluations per batch
-  initial_points: 256              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
+  initial_points: 128              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
   initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
-  model: "GP"                      # Base estimator surrogate model: "GP" (default)
-  acq_func: "LCB"                  # Lower Confidence Bound acquisition function (from hBN notebook)
-  acq_func_kwargs: {kappa: 6}    # Kappa parameter for LCB (from hBN notebook)
+
   objective_mode: "log"            # Cost mode: "log" (log10 cost)
   strategy: "cl_min"               # Constant liar strategy ("cl_min")
   save_surrogate_freq: 1           # Update bo_surrogate_map.png every N generations (0 = only at end)
   random_state: 42
   grid_evaluation: false         # Set to true (or bypass_optimization: true) to bypass BO
   grid_resolution: [16, 16]        # Grid points per parameter dimension (e.g.  8x8 = 64 points)
+
+  n_jobs: -1                       # Number of parallel jobs for BO (1 = serial, >1 = parallel, -1 = all cores)
+  n_points: 1000                   # Number of points to sample for acquisition function optimization (default: 1000)
+  n_restarts_optimizer: 5          # Number of restarts for acquisition function optimization (default: 10)
+
+  model: "GP"                      # Base estimator surrogate model: "GP" (default)
+  acq_func: "LCB"                  # Lower Confidence Bound acquisition function (from hBN notebook)
+  acq_func_kwargs: {kappa: 6}    # Kappa parameter for LCB (from hBN notebook)
