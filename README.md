@@ -31,6 +31,7 @@ uv run phc-runner --dir work --script main.ctl --cores 8 -p h=0.6 r1=0.25 r2=0.1
 | `--cores` | `-c` | Number of MPI cores to use | `4` |
 | `--param` | `-p` | Pass key=value parameters to MPB (e.g. `-p h=0.6 r1=0.25 resolution=64`) | None |
 | `--no-mpi` | | Disable MPI parallel execution | False |
+| `--symmetry` | | Enable Gamma point symmetry display and irrep classification | False |
 
 ---
 
@@ -75,6 +76,30 @@ run_hpc(
     wd="work"
 )
 
-# 2. Extract frequency data from output log manually if needed
+# 2. Extract frequency data and symmetry classifications manually if needed
 data = extract_frequencies(output_path="work/output.out")
+
+# 3. Read extracted symmetries
+from phc_nzi import load_symmetries
+
+symmetries = load_symmetries("work/symmetries.data")
+# Or inspect from in-memory dictionary:
+sym_data = data.get("symmetries")
 ```
+
+---
+
+## Symmetry & Irreducible Representation (Irrep) Classification at $\Gamma$
+
+When `display-symmetry?` / `display_symmetry?` is enabled, the runner and extractor automatically analyze point-group symmetries ($C_{4v}$ / $C_{6v}$) at the $\Gamma$ point ($k=0$) and project band states onto irreducible representations ($A_1, A_2, B_1, B_2, E, E_1, E_2$).
+
+### Output Files Generated:
+* **`symmetries.data`**: Space-delimited table of assigned irreps and confidence scores.
+  ```text
+  # parity band freq irrep confidence point_group
+  te 1 0.24513 A_1 1.0000 C4v
+  te 2 0.38912 E 1.0000 C4v
+  te 3 0.38912 E 1.0000 C4v
+  ```
+* **`symmetries.json`**: Structured JSON containing raw character expectation values ($C_4, C_6, C_3, C_2, \sigma_v, \sigma_d$) and full projection breakdowns.
+

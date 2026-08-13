@@ -208,6 +208,11 @@ def main() -> None:
         action="store_true",
         help="Disable MPI parallel execution"
     )
+    parser.add_argument(
+        "--symmetry", "--symmetries", "--display-symmetry",
+        action="store_true",
+        help="Enable Gamma point symmetry display and irrep classification (automatically uses single-core mpb)"
+    )
 
     args = parser.parse_args()
 
@@ -279,6 +284,9 @@ def main() -> None:
                         i += 2
                     else:
                         i += 1
+
+    if args.symmetry:
+        mpb_params["display-symmetry?"] = "true"
 
     if input(f"Do you want to run the script '{script_path}' in directory '{target_dir}' with mode '{args.mode}'? (y/n): ").strip().lower() == "y":
         print(f"Running MPB script '{script_path}' in directory '{target_dir}' (mode: {args.mode})...")
