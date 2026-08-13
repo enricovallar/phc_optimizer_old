@@ -32,7 +32,7 @@ def test_velocity_extraction(tmp_path):
     print("Group velocity parsing & magnitude calculation passed!")
 
     # Test disk loading
-    loaded = load_group_velocities(tmp_path / "group_velocities.data")
+    loaded = load_group_velocities(tmp_path / "group_velocities.json")
     assert len(loaded) == 4
     assert loaded[0]["parity"] == "te"
     print("Disk loading test passed!")

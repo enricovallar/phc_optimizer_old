@@ -213,30 +213,12 @@ def extract_symmetries(
 
 
 def save_symmetries(records: List[Dict[str, Any]], target_dir: Path) -> None:
-    """Save extracted symmetry records to symmetries.data and symmetries.json files."""
+    """Save extracted symmetry records to symmetries.json file."""
     import json
 
-    # 1. Plain text table format (symmetries.data)
-    data_filepath = target_dir / "symmetries.data"
-    headers = ["parity", "band", "freq", "irrep", "confidence", "point_group", "k_index", "k1", "k2", "k3", "kmag_2pi"]
-
-    with open(data_filepath, "w") as f:
-        f.write("# " + " ".join(headers) + "\n")
-        for r in records:
-            freq_str = f"{r['freq']:.8g}" if isinstance(r['freq'], (int, float)) and not math_isnan(r['freq']) else "nan"
-            k_idx_str = str(r.get("k_index")) if r.get("k_index") is not None else "nan"
-            k1_val = r.get("k1", 0.0)
-            k2_val = r.get("k2", 0.0)
-            k3_val = r.get("k3", 0.0)
-            kmag_val = r.get("kmag_2pi", 0.0)
-            f.write(f"{r['parity']} {r['band']} {freq_str} {r['irrep']} {r['confidence']:.4f} {r['point_group']} {k_idx_str} {k1_val:.6g} {k2_val:.6g} {k3_val:.6g} {kmag_val:.6g}\n")
-
-    print(f"Extracted {len(records)} band symmetry irreps to '{data_filepath}'")
-
-    # 2. JSON format (symmetries.json) with full character and projection details
     json_filepath = target_dir / "symmetries.json"
     json_filepath.write_text(json.dumps(records, indent=2))
-    print(f"Saved detailed symmetry JSON to '{json_filepath}'")
+    print(f"Extracted {len(records)} band symmetry irreps to '{json_filepath}'")
 
 
 def load_symmetries(symmetries_filepath: Union[str, os.PathLike]) -> List[Dict[str, Any]]:
@@ -456,22 +438,12 @@ def extract_group_velocities(
 
 
 def save_group_velocities(records: List[Dict[str, Any]], target_dir: Path) -> None:
-    """Save flat group velocity records to group_velocities.data and group_velocities.json files."""
+    """Save group velocity records to group_velocities.json file."""
     import json
-
-    data_filepath = target_dir / "group_velocities.data"
-    headers = ["parity", "band", "k_index", "k1", "k2", "k3", "kmag_2pi", "vx", "vy", "vz", "vg_mag"]
-
-    with open(data_filepath, "w") as f:
-        f.write("# " + " ".join(headers) + "\n")
-        for r in records:
-            f.write(f"{r['parity']} {r['band']} {r['k_index']} {r['k1']:.6g} {r['k2']:.6g} {r['k3']:.6g} {r['kmag_2pi']:.6g} {r['vx']:.8g} {r['vy']:.8g} {r['vz']:.8g} {r['vg_mag']:.8g}\n")
-
-    print(f"Extracted {len(records)} group velocity records to '{data_filepath}'")
 
     json_filepath = target_dir / "group_velocities.json"
     json_filepath.write_text(json.dumps(records, indent=2))
-    print(f"Saved detailed group velocities JSON to '{json_filepath}'")
+    print(f"Extracted {len(records)} group velocity records to '{json_filepath}'")
 
 
 def load_group_velocities(velocities_filepath: Union[str, os.PathLike]) -> List[Dict[str, Any]]:

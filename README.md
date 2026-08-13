@@ -36,14 +36,39 @@ uv run phc-runner --dir work --script main.ctl --cores 8 -p h=0.6 r1=0.25 r2=0.1
 
 ---
 
+## Simulation Output Directory Structure (`output/`)
+
+All generated runtime output files are automatically isolated inside an **`output/`** subfolder within your working directory (e.g. `work/output/`), keeping your control scripts clean and making output cleanup trivial (`rm -rf work/output/`).
+
+```text
+v2/work/                          <-- Working Directory (Clean!)
+├── main.ctl                      <-- Input Control Script (Untouched)
+└── output/                       <-- Single Folder for ALL Generated Outputs
+    ├── output.out                <-- MPB simulation log
+    ├── error.err                 <-- Execution error log
+    ├── main-epsilon.h5           <-- Raw dielectric HDF5 grid
+    ├── main-epsilon.converted.h5 <-- Rectified Cartesian dielectric HDF5 grid
+    ├── tefreqs.data              <-- TE band frequencies (matrix format)
+    ├── tmfreqs.data              <-- TM band frequencies (matrix format)
+    ├── kpath_labels.data         <-- High-symmetry k-path labels
+    ├── symmetries.json           <-- Irrep classifications & character tables at Gamma
+    ├── tevelocity.data           <-- TE group velocities (matrix format)
+    ├── tmvelocity.data           <-- TM group velocities (matrix format)
+    ├── group_velocities.json     <-- Group velocity vectors & magnitudes (JSON format)
+    ├── band_structure.png        <-- Band structure plot figure
+    └── epsilon_map.png           <-- Dielectric map plot figure
+```
+
+---
+
 ## Extracting Frequency Data (`.data` files)
 
-The package automatically parses simulation logs (`output.out`) and extracts band frequencies and high-symmetry k-path labels into clean `.data` files (`tefreqs.data`, `tmfreqs.data`, `kpath_labels.data`).
+The package automatically parses simulation logs (`output/output.out`) into clean `.data` and `.json` files.
 
 You can also run the extractor manually on any MPB log file:
 
 ```bash
-uv run phc-extractor -i work/output.out -o work/
+uv run phc-extractor -i work/output/output.out -o work/output/
 ```
 
 ### Output `.data` File Format (`tefreqs.data`)

@@ -108,42 +108,55 @@ def run_hpc(
         executable="/bin/bash"
     )
 
-    # Write error and output logs
-    error_file = wd_path / "error.err"
-    output_file = wd_path / "output.out"
+    # All runtime generated outputs go into output/ subfolder within working directory
+    output_dir = wd_path / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write error and output logs inside output/
+    error_file = output_dir / "error.err"
+    output_file = output_dir / "output.out"
 
     with open(error_file, "w") as f:
         f.write(result.stderr)
     with open(output_file, "w") as f:
         f.write(result.stdout)
 
-    # Automatically extract frequency data if output log contains freqs
+    # Move any generated HDF5 files (*-epsilon.h5) into output/
+    for h5_file in wd_path.glob("*-epsilon.h5"):
+        target_h5 = output_dir / h5_file.name
+        if h5_file != target_h5:
+            try:
+                h5_file.rename(target_h5)
+            except Exception:
+                pass
+
+    # Automatically extract frequency data into output/ if output log contains freqs
     if auto_extract and result.returncode == 0 and output_file.is_file():
         try:
             from .extractor import extract_frequencies
-            extract_frequencies(output_path=output_file, output_dir=wd_path, save_data=True)
+            extract_frequencies(output_path=output_file, output_dir=output_dir, save_data=True)
         except Exception as e:
             print(f"Note: Automatic data extraction notice: {e}")
 
-    # Automatically generate figures if auto_plot is enabled
+    # Automatically generate figures in output/ if auto_plot is enabled
     if auto_plot and result.returncode == 0:
         try:
             from .plotter import plot_band_structure, plot_epsilon
 
-            # 1. Auto-plot band structure (clean plot with red/blue/black dots)
+            # 1. Auto-plot band structure into output/
             plot_band_structure(
-                data_path=wd_path,
-                output_path=wd_path / "band_structure.png",
+                data_path=output_dir,
+                output_path=output_dir / "band_structure.png",
                 highlight_gaps=False,
                 style="light"
             )
 
             # 2. Auto-plot dielectric epsilon grid if .h5 file exists
-            for h5_candidate in wd_path.glob("*-epsilon.h5"):
+            for h5_candidate in list(output_dir.glob("*-epsilon.h5")) + list(wd_path.glob("*-epsilon.h5")):
                 if not h5_candidate.name.endswith(".converted.h5"):
                     plot_epsilon(
                         h5_path=h5_candidate,
-                        output_path=wd_path / "epsilon_map.png",
+                        output_path=output_dir / "epsilon_map.png",
                         rectify=True
                     )
                     break
