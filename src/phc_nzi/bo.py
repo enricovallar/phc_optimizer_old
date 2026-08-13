@@ -328,6 +328,8 @@ class BayesianOptimizer:
             else:
                 self.dimensions.append(Real(float(bounds[0]), float(bounds[1]), name=name))
 
+        n_jobs = self.opt_cfg.get("n_jobs", self.sim_cfg.get("parallel_workers", 1))
+
         self.optimizer = Optimizer(
             dimensions=self.dimensions,
             base_estimator=self.opt_cfg.get("model", "GP"),
@@ -335,6 +337,7 @@ class BayesianOptimizer:
             initial_point_generator=self.opt_cfg.get("initial_sampling", "sobol"),
             acq_func=self.opt_cfg.get("acq_func", "LCB"),
             acq_func_kwargs=self.opt_cfg.get("acq_func_kwargs", {"kappa": 3.5}),
+            n_jobs=n_jobs,
             random_state=self.opt_cfg.get("random_state", 42),
         )
 
