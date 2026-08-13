@@ -521,10 +521,17 @@ class BayesianOptimizer:
                 or self.target_cfg.get("calculate_group_velocity", False)
             )
 
-            # Option to compute vg only for optimal region (cost <= vg_cost_threshold, default 0.05)
+            # Auto-detect if point belongs to the purple region (low cost valley / high FOM)
             vg_optimal_only = bool(self.target_cfg.get("vg_optimal_only", True))
-            vg_thresh = float(self.target_cfg.get("vg_cost_threshold", 0.05))
-            should_run_vg = compute_vg and target_bands and (not vg_optimal_only or normalized_cost <= vg_thresh)
+            min_cost_so_far = min(
+                (float(r["raw_cost"]) for r in self.records if r.get("raw_cost") is not None and float(r["raw_cost"]) < 1.0),
+                default=0.01
+            )
+            purple_threshold = max(min_cost_so_far * 3.0, 0.01)
+            if "vg_cost_threshold" in self.target_cfg:
+                purple_threshold = float(self.target_cfg["vg_cost_threshold"])
+
+            should_run_vg = compute_vg and target_bands and (not vg_optimal_only or normalized_cost <= purple_threshold)
 
             if should_run_vg:
                 delta_k = float(self.target_cfg.get("delta_k", 0.01))
