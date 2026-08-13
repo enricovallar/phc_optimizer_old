@@ -25,3 +25,7 @@
 ; Dynamic symmetry display flags
 (define-param display-symmetry? false)
 (define-param display_symmetry? false)
+
+; Dynamic group velocity display flags
+(define-param display-group-velocity? false)
+(define-param display_group_velocity? false)

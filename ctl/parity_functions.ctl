@@ -60,3 +60,15 @@
           (if (< (abs b2x) 1e-4)
               (display-symmetries-c4v)
               (display-symmetries-c6v))))))
+
+; --- Dynamic Step Function Dispatcher ---
+(define-param display-group-velocity? false)
+(define-param display_group_velocity? false)
+
+(define (run-solver-with-callbacks solver)
+  (let ((callbacks '()))
+    (if (or display-symmetry? display_symmetry?)
+        (set! callbacks (append callbacks (list display-symmetries))))
+    (if (or display-group-velocity? display_group_velocity?)
+        (set! callbacks (append callbacks (list display-group-velocities))))
+    (apply solver callbacks)))

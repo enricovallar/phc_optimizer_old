@@ -109,6 +109,17 @@ def extract_frequencies(
         if sym_records:
             extracted_data["symmetries"] = sym_records
 
+    # Extract group velocity data if present in log
+    if "velocity:" in full_text:
+        vel_records = extract_group_velocities(
+            output_path=out_file,
+            output_dir=target_dir,
+            save_data=save_data,
+            freq_data=extracted_data
+        )
+        if vel_records:
+            extracted_data["group_velocities"] = vel_records
+
     return extracted_data
 
 
@@ -269,6 +280,234 @@ def load_symmetries(symmetries_filepath: Union[str, os.PathLike]) -> List[Dict[s
                         "k2": k2_val,
                         "k3": k3_val,
                         "kmag_2pi": kmag_val,
+                    })
+                except ValueError:
+                    continue
+    return records
+
+
+def extract_group_velocities(
+    output_path: Union[str, os.PathLike] = "output.out",
+    output_dir: Optional[Union[str, os.PathLike]] = None,
+    save_data: bool = True,
+    freq_data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Extract group velocity vectors and magnitudes from MPB log files (output.out).
+
+    Parameters:
+    -----------
+    output_path : str or PathLike
+        Path to MPB simulation log file.
+    output_dir : str or PathLike, optional
+        Target directory to save .data files (group_velocities.data, tevelocity.data, etc.).
+    save_data : bool, default True
+        Whether to save extracted group velocity data files to disk.
+    freq_data : dict, optional
+        Extracted frequency data for k-vector coordinate alignment.
+
+    Returns:
+    --------
+    dict
+        Dictionary mapping polarization keys ('tevelocity', 'tmvelocity', 'flat_records')
+        to parsed rows and vectors.
+    """
+    import math
+
+    out_file = Path(output_path).resolve()
+    if not out_file.is_file():
+        raise FileNotFoundError(f"MPB log file not found at '{out_file}'")
+
+    if output_dir is None:
+        target_dir = out_file.parent
+    else:
+        target_dir = Path(output_dir).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    lines = out_file.read_text().splitlines()
+    polarization_types = ["te", "tm", "zeven", "zodd"]
+
+    results: Dict[str, Any] = {}
+    flat_records: List[Dict[str, Any]] = []
+
+    for pol in polarization_types:
+        prefix = f"{pol}velocity:"
+        k_map: Dict[int, Dict[int, Tuple[float, float, float]]] = {}
+
+        for line in lines:
+            line_str = line.strip()
+            if not line_str.startswith(prefix):
+                continue
+
+            parts = [p.strip() for p in line_str.split(",") if p.strip()]
+            if len(parts) < 3:
+                continue
+
+            try:
+                k_idx = int(parts[1])
+            except ValueError:
+                continue
+
+            band_vecs: Dict[int, Tuple[float, float, float]] = {}
+            for col_i, item in enumerate(parts[2:], start=1):
+                clean_vec = item.replace("#(", "").replace("(", "").replace(")", "").strip()
+                v_parts = clean_vec.split()
+                if len(v_parts) >= 3:
+                    try:
+                        vx = float(v_parts[0])
+                        vy = float(v_parts[1])
+                        vz = float(v_parts[2])
+                        band_vecs[col_i] = (vx, vy, vz)
+                    except ValueError:
+                        pass
+                elif len(v_parts) == 1:
+                    try:
+                        vx = float(v_parts[0])
+                        band_vecs[col_i] = (vx, 0.0, 0.0)
+                    except ValueError:
+                        pass
+
+            if band_vecs:
+                k_map[k_idx] = band_vecs
+
+        if not k_map:
+            continue
+
+        # Look up k-vector coordinates from freq_data if available
+        k_coords_lookup: Dict[int, Tuple[float, float, float, float]] = {}
+        pol_freq_key = f"{pol}freqs"
+        if freq_data and pol_freq_key in freq_data:
+            rows = freq_data[pol_freq_key].get("rows", [])
+            headers = freq_data[pol_freq_key].get("headers", [])
+            if rows and headers:
+                k1_i = headers.index("k1") if "k1" in headers else 1
+                k2_i = headers.index("k2") if "k2" in headers else 2
+                k3_i = headers.index("k3") if "k3" in headers else 3
+                kmag_i = next((i for i, h in enumerate(headers) if "kmag" in h), None)
+                k_idx_i = headers.index("k_index") if "k_index" in headers else 0
+
+                for r in rows:
+                    try:
+                        kidx_val = int(r[k_idx_i])
+                        k1_val = float(r[k1_i])
+                        k2_val = float(r[k2_i])
+                        k3_val = float(r[k3_i])
+                        kmag_val = float(r[kmag_i]) if kmag_i is not None else math.sqrt(k1_val**2 + k2_val**2 + k3_val**2)
+                        k_coords_lookup[kidx_val] = (k1_val, k2_val, k3_val, kmag_val)
+                    except (ValueError, IndexError):
+                        pass
+
+        # Build matrix rows and flat records
+        matrix_rows: List[List[Union[int, float]]] = []
+        max_bands = max(max(b_dict.keys()) for b_dict in k_map.values()) if k_map else 0
+
+        headers = ["k_index", "k1", "k2", "k3", "kmag_2pi"]
+        for b in range(1, max_bands + 1):
+            headers.extend([f"band_{b}_vx", f"band_{b}_vy", f"band_{b}_vz", f"band_{b}_vg"])
+
+        for k_idx in sorted(k_map.keys()):
+            k1, k2, k3, kmag = k_coords_lookup.get(k_idx, (0.0, 0.0, 0.0, 0.0))
+            row_items: List[Union[int, float]] = [k_idx, k1, k2, k3, kmag]
+
+            for b_idx in range(1, max_bands + 1):
+                vec = k_map[k_idx].get(b_idx, (float("nan"), float("nan"), float("nan")))
+                vx, vy, vz = vec
+                if not (math.isnan(vx) or math.isnan(vy) or math.isnan(vz)):
+                    vg_mag = math.sqrt(vx**2 + vy**2 + vz**2)
+                else:
+                    vg_mag = float("nan")
+
+                row_items.extend([vx, vy, vz, vg_mag])
+
+                if not math.isnan(vg_mag):
+                    flat_records.append({
+                        "parity": pol,
+                        "band": b_idx,
+                        "k_index": k_idx,
+                        "k1": k1,
+                        "k2": k2,
+                        "k3": k3,
+                        "kmag_2pi": kmag,
+                        "vx": vx,
+                        "vy": vy,
+                        "vz": vz,
+                        "vg_mag": vg_mag
+                    })
+
+            matrix_rows.append(row_items)
+
+        pol_vel_key = f"{pol}velocity"
+        results[pol_vel_key] = {
+            "headers": headers,
+            "rows": matrix_rows
+        }
+
+        if save_data:
+            data_filepath = target_dir / f"{pol_vel_key}.data"
+            write_data_file(headers, matrix_rows, data_filepath)
+            print(f"Extracted group velocities for '{pol_vel_key}' to '{data_filepath}'")
+
+    results["flat_records"] = flat_records
+
+    if save_data and flat_records:
+        save_group_velocities(flat_records, target_dir)
+
+    return results
+
+
+def save_group_velocities(records: List[Dict[str, Any]], target_dir: Path) -> None:
+    """Save flat group velocity records to group_velocities.data and group_velocities.json files."""
+    import json
+
+    data_filepath = target_dir / "group_velocities.data"
+    headers = ["parity", "band", "k_index", "k1", "k2", "k3", "kmag_2pi", "vx", "vy", "vz", "vg_mag"]
+
+    with open(data_filepath, "w") as f:
+        f.write("# " + " ".join(headers) + "\n")
+        for r in records:
+            f.write(f"{r['parity']} {r['band']} {r['k_index']} {r['k1']:.6g} {r['k2']:.6g} {r['k3']:.6g} {r['kmag_2pi']:.6g} {r['vx']:.8g} {r['vy']:.8g} {r['vz']:.8g} {r['vg_mag']:.8g}\n")
+
+    print(f"Extracted {len(records)} group velocity records to '{data_filepath}'")
+
+    json_filepath = target_dir / "group_velocities.json"
+    json_filepath.write_text(json.dumps(records, indent=2))
+    print(f"Saved detailed group velocities JSON to '{json_filepath}'")
+
+
+def load_group_velocities(velocities_filepath: Union[str, os.PathLike]) -> List[Dict[str, Any]]:
+    """
+    Load extracted group velocities from a group_velocities.data or group_velocities.json file.
+    """
+    import json
+
+    filepath = Path(velocities_filepath).resolve()
+    if not filepath.is_file():
+        raise FileNotFoundError(f"Group velocity data file not found at '{filepath}'")
+
+    if filepath.suffix == ".json":
+        return json.loads(filepath.read_text())
+
+    records: List[Dict[str, Any]] = []
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) >= 11:
+                try:
+                    records.append({
+                        "parity": parts[0],
+                        "band": int(parts[1]),
+                        "k_index": int(parts[2]),
+                        "k1": float(parts[3]),
+                        "k2": float(parts[4]),
+                        "k3": float(parts[5]),
+                        "kmag_2pi": float(parts[6]),
+                        "vx": float(parts[7]),
+                        "vy": float(parts[8]),
+                        "vz": float(parts[9]),
+                        "vg_mag": float(parts[10]),
                     })
                 except ValueError:
                     continue

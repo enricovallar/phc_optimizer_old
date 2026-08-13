@@ -213,6 +213,11 @@ def main() -> None:
         action="store_true",
         help="Enable Gamma point symmetry display and irrep classification (automatically uses single-core mpb)"
     )
+    parser.add_argument(
+        "--group-velocity", "--vg", "--display-group-velocity",
+        action="store_true",
+        help="Enable group velocity calculation for all k-points and bands"
+    )
 
     args = parser.parse_args()
 
@@ -287,6 +292,8 @@ def main() -> None:
 
     if args.symmetry:
         mpb_params["display-symmetry?"] = "true"
+    if args.group_velocity:
+        mpb_params["display-group-velocity?"] = "true"
 
     if input(f"Do you want to run the script '{script_path}' in directory '{target_dir}' with mode '{args.mode}'? (y/n): ").strip().lower() == "y":
         print(f"Running MPB script '{script_path}' in directory '{target_dir}' (mode: {args.mode})...")

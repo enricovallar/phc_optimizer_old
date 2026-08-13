@@ -32,6 +32,7 @@ uv run phc-runner --dir work --script main.ctl --cores 8 -p h=0.6 r1=0.25 r2=0.1
 | `--param` | `-p` | Pass key=value parameters to MPB (e.g. `-p h=0.6 r1=0.25 resolution=64`) | None |
 | `--no-mpi` | | Disable MPI parallel execution | False |
 | `--symmetry` | | Enable Gamma point symmetry display and irrep classification | False |
+| `--group-velocity` | `--vg` | Enable group velocity calculation for all k-points and bands | False |
 
 ---
 
@@ -102,4 +103,20 @@ When `display-symmetry?` / `display_symmetry?` is enabled, the runner and extrac
   te 3 0.38912 E 1.0000 C4v
   ```
 * **`symmetries.json`**: Structured JSON containing raw character expectation values ($C_4, C_6, C_3, C_2, \sigma_v, \sigma_d$) and full projection breakdowns.
+
+---
+
+## Group Velocity Extraction ($\vec{v}_g$)
+
+When `--group-velocity` (or `display-group-velocity?=true`) is enabled, the runner and extractor calculate and parse group velocity vector components $(v_x, v_y, v_z)$ and magnitude $|\vec{v}_g| = \sqrt{v_x^2 + v_y^2 + v_z^2}$ for all bands and k-points along the reciprocal space trajectory.
+
+### Output Files Generated:
+* **`group_velocities.data`**: Flat table containing all bands, k-points, vector components, and speeds:
+  ```text
+  # parity band k_index k1 k2 k3 kmag_2pi vx vy vz vg_mag
+  te 1 1 -0.05 0.05 0 0.1 0.012 0.015 0 0.01921458
+  ```
+* **`tevelocity.data` / `tmvelocity.data`**: Matrix format with band-by-band components and speeds matching the shape of `tefreqs.data`.
+* **`group_velocities.json`**: Structured JSON file for programmatic reading.
+
 
