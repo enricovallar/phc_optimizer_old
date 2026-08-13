@@ -1117,9 +1117,12 @@ class BayesianOptimizer:
             ax1.set_aspect("equal", adjustable="box")
             ax1.grid(alpha=0.4, linestyle="--")
 
+            # Continuous smooth contour levels
+            cont_levels = np.linspace(vmin, vmax, 256)
+
             # Plot 2: GP Surrogate Map of Group Velocity
             if mu_vg is not None:
-                heatmap = ax2.contourf(X1, X2, mu_vg, levels=50, cmap="viridis", norm=norm, extend="both")
+                heatmap = ax2.contourf(X1, X2, mu_vg, levels=cont_levels, cmap="viridis", norm=norm, extend="both")
                 ax2.scatter(Xi_vg[:, 0], Xi_vg[:, 1], c="white", edgecolors="black", s=25, alpha=0.7, label="Evaluated points", zorder=5)
             else:
                 heatmap = sc

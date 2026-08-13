@@ -120,7 +120,8 @@ def extract_frequencies(
             output_path=out_file,
             output_dir=target_dir,
             save_data=save_data,
-            freq_data=extracted_data
+            freq_data=extracted_data,
+            verbose=verbose
         )
         if vel_records:
             extracted_data["group_velocities"] = vel_records
