@@ -1021,17 +1021,27 @@ class BayesianOptimizer:
             fom_raw = 1.0 / np.maximum(raw_costs, 1e-12)
             predicted_e_c_inv = 1.0 / np.maximum(exp_c_grid, 1e-12)
 
-            # Compute shared LogNorm scale bounds using robust percentiles
-            all_fom_vals = np.r_[fom_raw, predicted_e_c_inv.ravel()]
-            finite_pos = all_fom_vals[np.isfinite(all_fom_vals) & (all_fom_vals > 0)]
-
-            if finite_pos.size > 0:
-                vmin = max(float(np.percentile(finite_pos, 1)), 1e-12)
-                vmax = float(np.percentile(finite_pos, 99))
-                if vmax <= vmin:
-                    vmax = vmin * 10
+            # Compute shared LogNorm scale bounds using explicit config or robust percentiles
+            user_limits = (
+                self.opt_cfg.get("surrogate_colorbar_limits")
+                or self.opt_cfg.get("colorbar_limits")
+                or self.opt_cfg.get("plot_limits")
+            )
+            if user_limits and len(user_limits) == 2:
+                vmin, vmax = float(user_limits[0]), float(user_limits[1])
             else:
-                vmin, vmax = 1.0, 1000.0
+                all_fom_vals = np.r_[fom_raw, predicted_e_c_inv.ravel()]
+                finite_pos = all_fom_vals[np.isfinite(all_fom_vals) & (all_fom_vals > 0)]
+                p_lims = self.opt_cfg.get("surrogate_percentiles", [1, 99])
+                p_low, p_high = float(p_lims[0]), float(p_lims[1])
+
+                if finite_pos.size > 0:
+                    vmin = max(float(np.percentile(finite_pos, p_low)), 1e-12)
+                    vmax = float(np.percentile(finite_pos, p_high))
+                    if vmax <= vmin:
+                        vmax = vmin * 10
+                else:
+                    vmin, vmax = 1.0, 1000.0
 
             log_norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
 
@@ -1187,17 +1197,24 @@ class BayesianOptimizer:
             except Exception:
                 mu_vg = None
 
-            # Colorbar limits based on mean +/- std deviation of group velocity
-            mean_vg = float(np.mean(yi_vg))
-            std_vg = float(np.std(yi_vg))
+            # Colorbar limits based on explicit config or mean +/- std deviation of group velocity
+            vg_user_limits = (
+                self.opt_cfg.get("vg_colorbar_limits")
+                or self.opt_cfg.get("group_velocity_colorbar_limits")
+            )
+            if vg_user_limits and len(vg_user_limits) == 2:
+                vmin, vmax = float(vg_user_limits[0]), float(vg_user_limits[1])
+            else:
+                mean_vg = float(np.mean(yi_vg))
+                std_vg = float(np.std(yi_vg))
 
-            vmin = max(0.0, mean_vg - std_vg)
-            vmax = mean_vg + std_vg
-            if vmax <= vmin:
-                vmin = float(np.min(yi_vg))
-                vmax = float(np.max(yi_vg))
+                vmin = max(0.0, mean_vg - std_vg)
+                vmax = mean_vg + std_vg
                 if vmax <= vmin:
-                    vmax = vmin + 1e-4
+                    vmin = float(np.min(yi_vg))
+                    vmax = float(np.max(yi_vg))
+                    if vmax <= vmin:
+                        vmax = vmin + 1e-4
 
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
@@ -1278,6 +1295,53 @@ class BayesianOptimizer:
             print("Validation run finished with non-zero exit code.")
 
 
+    def plot_only(self) -> None:
+        """Loads existing simulation data and re-generates all output plots without running MPB simulations."""
+        if not self.json_file.is_file() and not self.data_file.is_file():
+            print(f"Error: No existing simulation data found in '{self.output_dir}' to plot.")
+            return
+
+        print("==================================================================")
+        print("Re-plotting figures from previous simulation data...")
+        print(f"Working Directory:   '{self.work_dir}'")
+        print(f"Output Directory:    '{self.output_dir}'")
+        print("==================================================================")
+
+        if self.json_file.is_file():
+            try:
+                with open(self.json_file, "r") as f:
+                    self.records = json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not load JSON data from {self.json_file}: {e}")
+
+        # Re-populate optimizer space with evaluated points
+        xi_list = []
+        yi_list = []
+        mode = self.opt_cfg.get("objective_mode", "log")
+        target_cost = self.target_cfg.get("target_cost")
+
+        for r in self.records:
+            if "params" in r and "raw_cost" in r:
+                pt = [r["params"][name] for name in self.param_names if name in r["params"]]
+                if len(pt) == len(self.param_names):
+                    xi_list.append(pt)
+                    raw_c = float(r["raw_cost"])
+                    eff_c = target_cost if (target_cost is not None and raw_c < target_cost) else raw_c
+                    if mode == "log":
+                        y_val = float(np.log10(max(eff_c, 1e-12)))
+                    else:
+                        y_val = float(eff_c)
+                    yi_list.append(y_val)
+
+        if xi_list and yi_list:
+            self.optimizer.tell(xi_list, yi_list)
+
+        self._plot_convergence()
+        self._plot_surrogate_map(verbose=True)
+        self._plot_group_velocity_map(verbose=True)
+        print(f"Plotting complete! All figures saved inside '{self.output_dir}'")
+
+
 def run_bo(config_path: Union[str, os.PathLike], work_dir: Optional[Union[str, os.PathLike]] = None) -> Dict[str, Any]:
     """
     Main programmatic API function to run Bayesian Optimization.
@@ -1308,6 +1372,12 @@ def main():
         default=None,
         help="Target working directory (overrides config work_dir)",
     )
+    parser.add_argument(
+        "--plot",
+        "-p",
+        action="store_true",
+        help="Only re-plot previous simulation data and surrogate/group velocity maps without running MPB simulations.",
+    )
 
     args = parser.parse_args()
 
@@ -1318,7 +1388,14 @@ def main():
         if alt_path.is_file():
             config_path = str(alt_path)
 
-    run_bo(config_path=config_path, work_dir=args.dir)
+    if args.plot:
+        config = load_bo_config(config_path)
+        if args.dir:
+            config["simulation"]["work_dir"] = str(args.dir)
+        opt = BayesianOptimizer(config)
+        opt.plot_only()
+    else:
+        run_bo(config_path=config_path, work_dir=args.dir)
 
 
 if __name__ == "__main__":
