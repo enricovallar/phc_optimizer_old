@@ -47,6 +47,13 @@ target:
   bypass_irrep_identification: false    # Set to true to bypass irrep identification and track static bands
   mode_indices: [2, 3, 4]               # Explicit band indices to target directly when bypass is true
 
+  # Option C: Slab Topology & Group Velocity
+  check_slab_connectivity: true         # Invalidate disconnected dielectric geometries
+  epsilon_threshold: 1.1                 # Dielectric threshold for matrix slab
+  min_neck_width_px: 4                   # Reject connections narrower than 4 grid pixels wide
+  compute_group_velocity: true           # Execute 2nd run at small delta_k to compute top target band group velocity
+  delta_k: 0.01                          # Offset from Gamma point (k = (delta_k, 0, 0)) for group velocity
+
 # Bayesian Optimizer & Gaussian Process (GP) settings
 optimizer:
   grid_evaluation: false          # Set to true (or bypass_optimization: true) to evaluate uniform grid & fit GP

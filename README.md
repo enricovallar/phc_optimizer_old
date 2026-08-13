@@ -195,6 +195,9 @@ target:
   target_cost: 0.0001              # Active learning cost threshold floor
   check_slab_connectivity: true   # Set to true to invalidate disconnected dielectric geometries
   epsilon_threshold: 1.1           # Dielectric threshold to identify matrix slab
+  min_neck_width_px: 4             # Reject connections narrower than 4 grid pixels wide
+  compute_group_velocity: true     # Execute 2nd run at small delta_k to compute top target band group velocity
+  delta_k: 0.01                    # Small k-vector offset from Gamma (k = (delta_k, 0, 0)) for group velocity calculation
   # Alternatively, bypass automatic irrep identification and specify exact mode indices:
   # bypass_irrep_identification: true
   # mode_indices: [2, 3, 4]

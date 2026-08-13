@@ -94,6 +94,9 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     target.setdefault("check_slab_connectivity", False)
     target.setdefault("enforce_connectivity", False)
     target.setdefault("epsilon_threshold", 1.1)
+    target.setdefault("compute_group_velocity", False)
+    target.setdefault("calculate_group_velocity", False)
+    target.setdefault("delta_k", 0.01)
     config["target"] = target
 
     opt = config.get("optimizer", {})
@@ -479,10 +482,51 @@ class BayesianOptimizer:
             raw_cost = abs(freq_high - freq_low)
             normalized_cost = raw_cost / freq_middle if freq_middle > 0 else raw_cost
 
-            return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections, conn_status
+            # Optional 2nd run: Group Velocity at small delta_k from Gamma for top target band
+            vg_top_band = None
+            compute_vg = bool(
+                self.target_cfg.get("compute_group_velocity", False)
+                or self.target_cfg.get("calculate_group_velocity", False)
+            )
+
+            if compute_vg and target_bands:
+                top_band = max(target_bands)
+                delta_k = float(self.target_cfg.get("delta_k", 0.01))
+
+                vg_params = dict(combined_params)
+                vg_params["only_gamma?"] = "false"
+                vg_params["display_group_velocity?"] = "true"
+                vg_params["delta_k"] = delta_k
+                vg_params["delta_k_mode?"] = "true"
+
+                with tempfile.TemporaryDirectory() as vg_temp_dir:
+                    res_vg = run_hpc(
+                        script=self._get_script_path(),
+                        mpb_command_line_params=vg_params,
+                        use_mpi=False,
+                        cores=self.sim_cfg.get("cores", 4),
+                        wd=vg_temp_dir,
+                        auto_extract=True,
+                        auto_plot=False,
+                        only_gamma=False,
+                        verbose=False,
+                    )
+                    vg_log = Path(vg_temp_dir) / "output" / "output.out"
+                    if vg_log.is_file():
+                        from phc_nzi.extractor import extract_group_velocities
+                        vg_data = extract_group_velocities(output_path=vg_log, save_data=False)
+                        pol_vg_key = f"{pol}velocity"
+                        if pol_vg_key in vg_data:
+                            rows_vg = vg_data[pol_vg_key].get("rows", [])
+                            for r_v in rows_vg:
+                                if int(r_v.get("band", 0)) == top_band:
+                                    vg_top_band = float(r_v.get("vg_mag", 0.0))
+                                    break
+
+            return normalized_cost, freq_middle, tracking_label, full_map, target_bands, corrections, conn_status, vg_top_band
 
     def objective(self, gen: int, param_values: List[float]) -> float:
-        cost, freq_dirac, label, full_map, target_bands, corrections, conn_status = self._evaluate_single((gen, param_values))
+        cost, freq_dirac, label, full_map, target_bands, corrections, conn_status, vg_top_band = self._evaluate_single((gen, param_values))
 
         with self.lock:
             self.eval_counter += 1
@@ -496,6 +540,7 @@ class BayesianOptimizer:
                 "params": param_dict,
                 "raw_cost": cost,
                 "freq_dirac": freq_dirac,
+                "group_velocity": vg_top_band,
                 "status": label,
                 "connectivity": conn_status,
                 "target_bands": target_bands,
@@ -530,6 +575,10 @@ class BayesianOptimizer:
                 f.write(f"Cost         : {cost:.6f} | Dirac Freq: {freq_dirac:.6f} | {label}\n")
                 if conn_status != "NOT_CHECKED":
                     f.write(f"Connectivity : {conn_status}\n")
+                if vg_top_band is not None:
+                    top_b_idx = max(target_bands) if target_bands else 0
+                    d_k = self.target_cfg.get("delta_k", 0.01)
+                    f.write(f"Top Band vg  : {vg_top_band:.6f} c (Band #{top_b_idx} at delta_k = {d_k:.4f})\n")
                 if corrections:
                     f.write(f"CORRECTED    : {corr_str}\n")
                 f.write("-" * 90 + "\n")
@@ -741,9 +790,10 @@ class BayesianOptimizer:
         with open(self.best_params_file, "w") as f:
             json.dump(best_summary, f, indent=2)
 
-        # Plot convergence curve & surrogate map
+        # Plot convergence curve, surrogate map & group velocity map
         self._plot_convergence()
         self._plot_surrogate_map()
+        self._plot_group_velocity_map()
 
         # Run final full k-path validation simulation
         self._run_validation(best_params)
@@ -987,6 +1037,108 @@ class BayesianOptimizer:
                     print(f"Note: Could not generate multi-dimensional surrogate plot: {e}")
 
 
+
+    def _plot_group_velocity_map(self, verbose: bool = True) -> None:
+        """
+        Generates and saves a 2-panel figure of the top target band group velocity vg (in units of c)
+        computed at a small delta_k from Gamma.
+        """
+        import matplotlib.colors as mcolors
+        from matplotlib.ticker import FormatStrFormatter
+
+        vg_records = [r for r in self.records if r.get("group_velocity") is not None]
+        if not vg_records:
+            return
+
+        fig_file = self.output_dir / "bo_group_velocity_map.png"
+        data_file = self.output_dir / "bo_group_velocity.data"
+
+        # Write tabular group velocity data file
+        with open(data_file, "w") as f:
+            p_hdr = " ".join(f"{k:<10s}" for k in self.param_names)
+            f.write(f"# Eval  Gen  {p_hdr} Top_Band  vg_mag (c)   Cost\n")
+            for r in vg_records:
+                p_str = " ".join(f"{float(r['params'][k]):<10.6f}" for k in self.param_names)
+                top_b = max(r.get("target_bands", [6])) if r.get("target_bands") else 0
+                vg_v = float(r.get("group_velocity", 0.0))
+                c_v = float(r.get("raw_cost", 0.0))
+                f.write(f"{r['eval_number']:<6d} {r['generation']:<4d} {p_str} {top_b:<9d} {vg_v:<12.6f} {c_v:<10.6f}\n")
+
+        if len(self.param_names) == 2:
+            p1_name, p2_name = self.param_names[0], self.param_names[1]
+            b1 = self.param_bounds[0]
+            b2 = self.param_bounds[1]
+
+            Xi_vg = np.array([[r["params"][p1_name], r["params"][p2_name]] for r in vg_records])
+            yi_vg = np.array([r["group_velocity"] for r in vg_records])
+
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6.0))
+
+            top_b_num = max(vg_records[0].get("target_bands", [6])) if vg_records[0].get("target_bands") else "Top"
+            delta_k = self.target_cfg.get("delta_k", 0.01)
+
+            # Fit a GP surrogate on group velocity
+            try:
+                from skopt.learning import GaussianProcessRegressor
+                gp_vg = GaussianProcessRegressor(random_state=42)
+                gp_vg.fit(self.optimizer.space.transform(Xi_vg.tolist()), yi_vg)
+
+                x1 = np.linspace(float(b1[0]), float(b1[1]), 150)
+                x2 = np.linspace(float(b2[0]), float(b2[1]), 150)
+                X1, X2 = np.meshgrid(x1, x2)
+                grid_pts = np.c_[X1.ravel(), X2.ravel()]
+                grid_trans = self.optimizer.space.transform(grid_pts.tolist())
+
+                mu_vg = gp_vg.predict(grid_trans).reshape(X1.shape)
+            except Exception:
+                mu_vg = None
+
+            vmin = float(np.min(yi_vg))
+            vmax = float(np.max(yi_vg))
+            if vmax <= vmin:
+                vmax = vmin + 1e-4
+
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+            # Plot 1: Evaluated Group Velocity Scatter
+            sc = ax1.scatter(
+                Xi_vg[:, 0], Xi_vg[:, 1], c=yi_vg, cmap="viridis", norm=norm, s=40, edgecolors="black", linewidths=0.5, zorder=4
+            )
+            ax1.set_xlabel(f"${p1_name}/a$", fontsize=11)
+            ax1.set_ylabel(f"${p2_name}/a$", fontsize=11)
+            ax1.set_title(f"(a) Top Band #{top_b_num} $v_g$ at $\Delta k={delta_k}$ ($c$)", fontsize=12, fontweight="bold")
+            ax1.set_xlim(float(b1[0]), float(b1[1]))
+            ax1.set_ylim(float(b2[0]), float(b2[1]))
+            ax1.set_aspect("equal", adjustable="box")
+            ax1.grid(alpha=0.4, linestyle="--")
+
+            # Plot 2: GP Surrogate Map of Group Velocity
+            if mu_vg is not None:
+                heatmap = ax2.contourf(X1, X2, mu_vg, levels=50, cmap="viridis", norm=norm, extend="both")
+                ax2.scatter(Xi_vg[:, 0], Xi_vg[:, 1], c="white", edgecolors="black", s=25, alpha=0.7, label="Evaluated points", zorder=5)
+            else:
+                heatmap = sc
+
+            ax2.set_xlabel(f"${p1_name}/a$", fontsize=11)
+            ax2.set_ylabel(f"${p2_name}/a$", fontsize=11)
+            ax2.set_title(f"(b) GP Predicted $v_g$ Surface ($c$)", fontsize=12, fontweight="bold")
+            ax2.set_xlim(float(b1[0]), float(b1[1]))
+            ax2.set_ylim(float(b2[0]), float(b2[1]))
+            ax2.set_aspect("equal", adjustable="box")
+            ax2.grid(alpha=0.4, linestyle="--")
+
+            for ax in (ax1, ax2):
+                ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+                ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+
+            cbar = fig.colorbar(heatmap, ax=[ax1, ax2], fraction=0.035, pad=0.04, extend="both")
+            cbar.set_label(r"$v_g$ ($c$)", fontsize=13)
+            cbar.ax.tick_params(labelsize=9)
+
+            plt.savefig(fig_file, dpi=200, bbox_inches="tight")
+            plt.close(fig)
+            if verbose:
+                print(f"Saved group velocity map plot to '{fig_file}'")
 
     def _get_script_path(self) -> Path:
         script_cfg = self.sim_cfg.get("ctl_script", "example.ctl")

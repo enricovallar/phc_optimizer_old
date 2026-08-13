@@ -76,9 +76,23 @@ def test_bypass_irrep():
     assert opt.target_cfg.get("bypass_irrep_identification") is True
     print("Bypass irrep identification test passed!")
 
+def test_group_velocity_config():
+    from phc_nzi.bo import BayesianOptimizer
+    config = {
+        "simulation": {"ctl_script": "test.ctl"},
+        "parameters": {"r1": [0.1, 0.4]},
+        "target": {"compute_group_velocity": True, "delta_k": 0.015},
+        "optimizer": {}
+    }
+    opt = BayesianOptimizer(config)
+    assert opt.target_cfg.get("compute_group_velocity") is True
+    assert opt.target_cfg.get("delta_k") == 0.015
+    print("Group velocity config test passed!")
+
 if __name__ == "__main__":
     test_bo_config_loading()
     test_failsafe_irrep_mapping()
     test_grid_generation()
     test_bypass_irrep()
+    test_group_velocity_config()
     print("All BO unit tests passed successfully!")

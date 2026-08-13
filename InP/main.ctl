@@ -10,7 +10,7 @@
 (define-param r1 0.2)
 (define-param r2 0.1)
 
-(define matrix-mat (make dielectric (epsilon 9.47)))
+(define matrix-mat (make dielectric (epsilon 9.46)))
 (define atom-mat (make dielectric (epsilon 1)))
 
 (set! geometry-lattice (make-square-lattice no-size))
@@ -33,6 +33,11 @@
 ; Override k-points to ONLY Gamma point if only-gamma? flag is set
 (if (or only-gamma? only_gamma?)
     (set! k-points (list (vector3 0 0 0))))
+
+(define-param delta-k 0.01)
+; Override k-points for small delta-k group velocity run
+(if (or delta-k-mode? delta_k_mode?)
+    (set! k-points (list (vector3 delta-k 0 0))))
 
 ; Conditionally execute solvers based on dynamic flags (initialized in init.ctl)
 (if run-te? (run-solver-with-callbacks run-te))
