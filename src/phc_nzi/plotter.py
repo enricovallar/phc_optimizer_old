@@ -19,6 +19,7 @@ def plot_band_structure(
     style: str = "light",
     show: bool = False,
     dpi: int = 300,
+    ylim: Optional[Tuple[float, float]] = None,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot photonic band structure dispersion curves from .data files.
@@ -166,7 +167,16 @@ def plot_band_structure(
             )
 
     ax.set_xlim(k_indices_ref[0], k_indices_ref[-1])
-    ax.set_ylim(bottom=0.0)
+    if len(all_bands_list) > 0:
+        combined_bands = np.hstack(all_bands_list)
+        min_f = float(np.min(combined_bands))
+        max_f = float(np.max(combined_bands))
+        if ylim is not None:
+            ax.set_ylim(ylim[0], ylim[1])
+        else:
+            ax.set_ylim(min_f, max_f)
+    else:
+        ax.set_ylim(bottom=0.0)
     ax.grid(True, linestyle=":", alpha=0.5)
 
     ax.legend(loc="upper right", frameon=True, fontsize=9.5)
