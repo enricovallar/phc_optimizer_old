@@ -20,6 +20,8 @@ def plot_band_structure(
     show: bool = False,
     dpi: int = 300,
     ylim: Optional[Tuple[float, float]] = None,
+    bands: Optional[List[int]] = None,
+    polarization: Optional[str] = None,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot photonic band structure dispersion curves from .data files.
@@ -167,14 +169,47 @@ def plot_band_structure(
             )
 
     ax.set_xlim(k_indices_ref[0], k_indices_ref[-1])
-    if len(all_bands_list) > 0:
+    if ylim is not None:
+        ax.set_ylim(ylim[0], ylim[1])
+    elif bands is not None and len(bands) > 0 and len(all_bands_list) > 0:
+        min_b = min(bands)  # 1-indexed band number (e.g. 4)
+        max_b = max(bands)  # 1-indexed band number (e.g. 6)
+
+        # Filter bands array by polarization if specified
+        target_arrays = []
+        for idx, (fpath, _, _) in enumerate(files_to_plot):
+            fname_lower = fpath.name.lower()
+            if polarization:
+                pol_lower = polarization.lower()
+                if pol_lower in ["te", "zeven"] and ("te" in fname_lower or "zeven" in fname_lower):
+                    target_arrays.append(all_bands_list[idx])
+                elif pol_lower in ["tm", "zodd"] and ("tm" in fname_lower or "zodd" in fname_lower):
+                    target_arrays.append(all_bands_list[idx])
+            else:
+                target_arrays.append(all_bands_list[idx])
+        if not target_arrays:
+            target_arrays = all_bands_list
+
+        t_min_list = []
+        t_max_list = []
+        for b_arr in target_arrays:
+            n_cols = b_arr.shape[1]
+            col_min = max(0, min_b - 1)
+            col_max = min(n_cols - 1, max_b - 1)
+            if col_min < n_cols:
+                t_min_list.append(np.min(b_arr[:, col_min]))
+            if col_max < n_cols:
+                t_max_list.append(np.max(b_arr[:, col_max]))
+        if t_min_list and t_max_list:
+            ax.set_ylim(float(min(t_min_list)), float(max(t_max_list)))
+        else:
+            combined_bands = np.hstack(all_bands_list)
+            ax.set_ylim(float(np.min(combined_bands)), float(np.max(combined_bands)))
+    elif len(all_bands_list) > 0:
         combined_bands = np.hstack(all_bands_list)
         min_f = float(np.min(combined_bands))
         max_f = float(np.max(combined_bands))
-        if ylim is not None:
-            ax.set_ylim(ylim[0], ylim[1])
-        else:
-            ax.set_ylim(min_f, max_f)
+        ax.set_ylim(min_f, max_f)
     else:
         ax.set_ylim(bottom=0.0)
     ax.grid(True, linestyle=":", alpha=0.5)

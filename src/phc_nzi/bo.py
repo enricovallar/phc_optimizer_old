@@ -1504,6 +1504,30 @@ class BayesianOptimizer:
             only_gamma=False,  # Run full k-path
         )
 
+        # Determine target bands (e.g. [4, 5, 6]) to focus validation band structure plot
+        target_bands = None
+        if hasattr(self, "records") and self.records:
+            best_rec = min(self.records, key=lambda r: r.get("raw_cost", float("inf")))
+            target_bands = best_rec.get("target_bands")
+        if not target_bands:
+            target_bands = self.target_cfg.get("mode_indices") or self.target_cfg.get("target_bands")
+
+        output_dir = Path(self.output_dir) / "output"
+        pol = self.target_cfg.get("polarization", "te").lower()
+        if target_bands and output_dir.is_dir():
+            try:
+                from .plotter import plot_band_structure
+                plot_band_structure(
+                    data_path=output_dir,
+                    output_path=output_dir / "band_structure.png",
+                    bands=target_bands,
+                    polarization=pol,
+                    highlight_gaps=False,
+                    style="light"
+                )
+            except Exception as e:
+                print(f"Note: Could not adjust validation band structure plot limits: {e}")
+
         if res.returncode == 0:
             print(f"Validation complete! Optimal figures saved inside '{self.output_dir}'")
         else:
