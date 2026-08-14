@@ -1079,6 +1079,7 @@ class BayesianOptimizer:
           overlaid with sampled points and optimal point star.
         """
         import matplotlib.colors as mcolors
+        import matplotlib.gridspec as gridspec
         from matplotlib.ticker import FormatStrFormatter, LogFormatterSciNotation, LogLocator
 
         if not hasattr(self.optimizer, "models") or not self.optimizer.models:
@@ -1181,7 +1182,12 @@ class BayesianOptimizer:
             target_irreps = self.target_cfg.get("target_irreps", ["A_2", "E", "E"])
             target_str = " - ".join(dict.fromkeys(target_irreps))
 
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6.0))
+            fig = plt.figure(figsize=(13.0, 5.8))
+            gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.04], wspace=0.25)
+
+            ax1 = fig.add_subplot(gs[0, 0])
+            ax2 = fig.add_subplot(gs[0, 1])
+            cax = fig.add_subplot(gs[0, 2])
 
             p1_label = f"${p1_name[0]}_{{{p1_name[1:]}}}/a$" if len(p1_name) > 1 and p1_name[1:].isdigit() else f"${p1_name}/a$"
             p2_label = f"${p2_name[0]}_{{{p2_name[1:]}}}/a$" if len(p2_name) > 1 and p2_name[1:].isdigit() else f"${p2_name}/a$"
@@ -1208,7 +1214,7 @@ class BayesianOptimizer:
             # ---------------------------------------------------------
             # Plot 2 (Right): GP Surrogate Expectation Map E[C]^-1
             # ---------------------------------------------------------
-            levels = np.logspace(np.log10(vmin), np.log10(vmax), 100)
+            levels = np.logspace(np.log10(vmin), np.log10(vmax), 200)
             heatmap = ax2.contourf(
                 X1, X2, predicted_e_c_inv, levels=levels, cmap="cool", norm=log_norm, extend="both"
             )
@@ -1229,18 +1235,20 @@ class BayesianOptimizer:
                 ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
                 ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
-            # Shared Colorbar on the right matching pillars_c6v_1.ipynb
-            cbar = fig.colorbar(heatmap, ax=[ax1, ax2], fraction=0.035, pad=0.04, extend="both", format=LogFormatterSciNotation())
-            cbar.set_label(r"$\mathrm{E}[C]^{-1}$", fontsize=13)
-            cbar.ax.tick_params(labelsize=9)
+            # Dedicated colorbar axis with inward ticks matching snippet
+            cbar = fig.colorbar(heatmap, cax=cax, extend="both", format=LogFormatterSciNotation())
+            cbar.set_label(r"$\mathbb{E}[C(r_1, r_2)]^{-1}$" if len(self.param_names) == 2 else r"$\mathbb{E}[C]^{-1}$", fontsize=13)
+            cbar.locator = LogLocator(base=10.0, numticks=6)
+            cbar.update_ticks()
             cbar.ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2, 10), numticks=12))
             cbar.ax.yaxis.set_minor_formatter(plt.NullFormatter())
-            cbar.ax.tick_params(which="minor", length=4)
+            cbar.ax.tick_params(which="major", direction="in", length=5)
+            cbar.ax.tick_params(which="minor", direction="in", length=2.5)
 
             handles1, labels1 = ax1.get_legend_handles_labels()
             handles2, labels2 = ax2.get_legend_handles_labels()
             by_label = dict(zip(labels1 + labels2, handles1 + handles2))
-            fig.legend(by_label.values(), by_label.keys(), loc="lower center", bbox_to_anchor=(0.5, -0.05), ncol=3, facecolor="white", edgecolor="black")
+            fig.legend(by_label.values(), by_label.keys(), loc="lower center", bbox_to_anchor=(0.5, -0.06), ncol=3, facecolor="white", edgecolor="black")
 
             plt.savefig(surrogate_file, dpi=200, bbox_inches="tight")
             plt.close()
