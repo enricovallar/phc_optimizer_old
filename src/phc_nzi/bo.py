@@ -891,9 +891,10 @@ class BayesianOptimizer:
         with open(self.best_params_file, "w") as f:
             json.dump(best_summary, f, indent=2)
 
-        # Plot convergence curve, surrogate map & group velocity map
+        # Plot convergence curve, surrogate map, iterations map & group velocity map
         self._plot_convergence()
         self._plot_surrogate_map()
+        self._plot_iterations_map()
         self._plot_group_velocity_map()
 
         # Run final full k-path validation simulation
@@ -902,66 +903,179 @@ class BayesianOptimizer:
         return best_summary
 
 
-    def _plot_convergence(self) -> None:
+    def _plot_convergence(self, verbose: bool = True) -> None:
         if not self.records:
             return
+        import matplotlib.colors as mcolors
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+        from matplotlib.ticker import FormatStrFormatter
+
         costs = [r["raw_cost"] for r in self.records]
-        best_so_far = np.minimum.accumulate(costs)
+        iters_list = [r.get("generation", 1) for r in self.records]
+        eval_nums = [r.get("eval_number", i + 1) for i, r in enumerate(self.records)]
+
+        costs = np.array(costs)
+        foms = 1.0 / np.maximum(costs, 1e-12)
+        iterations = np.array(iters_list)
+        eval_indices = np.array(eval_nums)
         n_evals = len(costs)
 
         n_initial = self.opt_cfg.get("initial_points", 8)
         n_initial_evals = min(n_initial, n_evals)
 
+        unique_iters = sorted(list(set(iterations)))
+        min_iter, max_iter = (min(unique_iters), max(unique_iters)) if unique_iters else (1, 1)
 
-        plt.figure(figsize=(9, 5.5))
-        eval_indices = np.arange(1, n_evals + 1)
+        # Initial sampling phase limit (iterations of initial points)
+        initial_iters = sorted(list(set(iterations[eval_indices <= n_initial_evals]))) if n_initial_evals > 0 else [1]
+        n_initial_iters = max(initial_iters) if initial_iters else 1
+        div_point_iter = n_initial_iters + 0.5
 
-        # Distinguish initial sampling phase vs active BO phase
-        if n_initial_evals > 0:
-            plt.scatter(
-                eval_indices[:n_initial_evals],
-                costs[:n_initial_evals],
-                color="royalblue",
-                s=40,
+        # Stack two colormaps: spring (initial sampling) + winter (active BO)
+        cmap_spring = plt.get_cmap("spring")
+        cmap_winter = plt.get_cmap("winter")
+
+        init_iters_list = [it for it in unique_iters if it <= n_initial_iters]
+        bo_iters_list = [it for it in unique_iters if it > n_initial_iters]
+
+        n_init = len(init_iters_list)
+        n_bo = len(bo_iters_list)
+
+        if n_init == 1:
+            init_colors = [cmap_spring(0.5)]
+        else:
+            init_colors = [cmap_spring(v) for v in np.linspace(0.15, 0.85, n_init)]
+
+        if n_bo == 1:
+            bo_colors = [cmap_winter(0.5)]
+        elif n_bo > 1:
+            bo_colors = [cmap_winter(v) for v in np.linspace(0.15, 0.85, n_bo)]
+        else:
+            bo_colors = []
+
+        stacked_colors = init_colors + bo_colors
+        stacked_cmap = mcolors.ListedColormap(stacked_colors)
+        bounds_iter = np.arange(min_iter - 0.5, max_iter + 1.5, 1)
+        discrete_norm = mcolors.BoundaryNorm(bounds_iter, len(stacked_colors))
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6.0))
+
+        # ---------------------------------------------------------
+        # Plot 1 (Left / (a)): Evaluated Points by Iteration Map
+        # ---------------------------------------------------------
+        if len(self.param_names) == 2 and hasattr(self.optimizer, "Xi") and len(self.optimizer.Xi) > 0:
+            p1_name, p2_name = self.param_names[0], self.param_names[1]
+            b1 = self.param_bounds[0]
+            b2 = self.param_bounds[1]
+
+            Xi = np.array(self.optimizer.Xi)
+            yi = np.array(self.optimizer.yi)
+
+            # Match records to Xi
+            matched_iters = []
+            for idx, x_pt in enumerate(Xi):
+                mit = 1
+                for r in self.records:
+                    r_pt = [r["params"][name] for name in self.param_names if name in r["params"]]
+                    if len(r_pt) == len(x_pt) and np.allclose(r_pt, x_pt, atol=1e-5):
+                        mit = r.get("generation", 1)
+                        break
+                matched_iters.append(mit)
+            matched_iters = np.array(matched_iters)
+
+            best_idx = int(np.argmin(yi))
+            best_x = Xi[best_idx]
+
+            p1_label = f"${p1_name[0]}_{{{p1_name[1:]}}}/a$" if len(p1_name) > 1 and p1_name[1:].isdigit() else f"${p1_name}/a$"
+            p2_label = f"${p2_name[0]}_{{{p2_name[1:]}}}/a$" if len(p2_name) > 1 and p2_name[1:].isdigit() else f"${p2_name}/a$"
+
+            sc1 = ax1.scatter(
+                Xi[:, 0],
+                Xi[:, 1],
+                c=matched_iters,
+                cmap=stacked_cmap,
+                norm=discrete_norm,
+                s=42,
+                edgecolors="black",
+                linewidths=0.5,
+                marker="o",
                 zorder=4,
-                label=f"Initial Sampling ({self.opt_cfg.get('initial_sampling', 'sobol')})",
+                label="Explored points",
             )
-            plt.axvspan(0.5, n_initial_evals + 0.5, color="royalblue", alpha=0.08)
-            plt.axvline(x=n_initial_evals + 0.5, color="gray", linestyle="--", alpha=0.7, label="BO Phase Start")
-
-        if n_evals > n_initial_evals:
-            plt.scatter(
-                eval_indices[n_initial_evals:],
-                costs[n_initial_evals:],
-                color="crimson",
-                marker="s",
-                s=40,
-                zorder=4,
-                label="Active BO Evaluations (GP)",
+            ax1.scatter(
+                best_x[0],
+                best_x[1],
+                c="gold",
+                edgecolors="black",
+                marker="*",
+                s=220,
+                zorder=6,
+                label="Optimal Point",
             )
-            plt.axvspan(n_initial_evals + 0.5, n_evals + 0.5, color="crimson", alpha=0.05)
 
-        plt.plot(eval_indices, costs, "-", color="gray", alpha=0.3)
-        plt.plot(eval_indices, best_so_far, "r-", linewidth=2.5, zorder=5, label="Best Cost So Far")
+            ax1.set_xlabel(p1_label, fontsize=11)
+            ax1.set_ylabel(p2_label, fontsize=11)
+            ax1.set_title("(a) Evaluated Points by Iteration", fontsize=12, fontweight="bold")
+            ax1.set_xlim(float(b1[0]), float(b1[1]))
+            ax1.set_ylim(float(b2[0]), float(b2[1]))
+            ax1.set_aspect("equal", adjustable="box")
+            ax1.grid(alpha=0.4, linestyle="--")
+            ax1.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+            ax1.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 
-        plt.yscale("log")
-        plt.xlabel("Evaluation #", fontsize=11)
-        plt.ylabel("Dirac Cone Gap Cost", fontsize=11)
-        plt.title("Bayesian Optimization Convergence (Initial vs. Guided BO)", fontsize=12, fontweight="bold")
-        plt.grid(True, which="both", ls="--", alpha=0.4)
-        plt.legend(loc="upper right")
+            divider1 = make_axes_locatable(ax1)
+            cax1 = divider1.append_axes("right", size="5%", pad=0.1)
+            cbar1 = fig.colorbar(sc1, cax=cax1, ticks=np.arange(min_iter, max_iter + 1))
+            cbar1.set_label("Iteration #", fontsize=11)
+            cbar1.ax.tick_params(labelsize=9)
+
+            ax1.legend(loc="upper right", fontsize=9, facecolor="white", edgecolor="black", framealpha=0.9)
+        else:
+            best_so_far = np.maximum.accumulate(foms)
+            ax1.plot(eval_indices, foms, "-", color="gray", alpha=0.25)
+            ax1.plot(eval_indices, best_so_far, "r-", linewidth=2.5, zorder=5, label=r"Best $\mathrm{E}[C]^{-1}$ So Far")
+            ax1.set_yscale("log")
+            ax1.set_xlabel("Evaluation #", fontsize=11)
+            ax1.set_ylabel(r"$\mathrm{E}[C]^{-1}$", fontsize=13)
+            ax1.set_title("(a) Convergence vs. Evaluation #", fontsize=12, fontweight="bold")
+            ax1.grid(True, which="both", ls="--", alpha=0.4)
+            ax1.legend(loc="upper left")
+
+        # ---------------------------------------------------------
+        # Plot 2 (Right / (b)): Convergence vs. Iteration #
+        # ---------------------------------------------------------
+        for i, it in enumerate(unique_iters):
+            mask = (iterations == it)
+            c_it = stacked_colors[i]
+            it_foms = foms[mask]
+            ax2.scatter([it] * len(it_foms), it_foms, color=c_it, s=40, edgecolors="black", linewidths=0.4, zorder=4, alpha=0.85)
+
+        # Background regions with subtle spring and winter tints
+        ax2.axvspan(min_iter - 0.5, div_point_iter, color=cmap_spring(0.5), alpha=0.10, label="Initial Phase (Spring)")
+        ax2.axvspan(div_point_iter, max_iter + 0.5, color=cmap_winter(0.5), alpha=0.10, label="BO Phase (Winter)")
+        ax2.axvline(x=div_point_iter, color="gray", linestyle="--", alpha=0.8, label="BO Phase Start")
+
+        ax2.set_yscale("log")
+        ax2.set_xlabel("Iteration #", fontsize=11)
+        ax2.set_ylabel(r"$\mathrm{E}[C]^{-1}$", fontsize=13)
+        ax2.set_title("(b) Convergence vs. Iteration #", fontsize=12, fontweight="bold")
+        ax2.set_xticks(np.arange(min_iter, max_iter + 1))
+        ax2.set_xlim(min_iter - 0.5, max_iter + 0.5)
+        ax2.grid(True, which="both", ls="--", alpha=0.4)
+        ax2.legend(loc="upper left", fontsize=9, facecolor="white", edgecolor="black")
+
         plt.tight_layout()
-
         conv_file = self.output_dir / "bo_convergence.png"
-        plt.savefig(conv_file, dpi=200)
+        plt.savefig(conv_file, dpi=200, bbox_inches="tight")
         plt.close()
-        print(f"Saved convergence plot to '{conv_file}'")
+        if verbose:
+            print(f"Saved convergence plot to '{conv_file}'")
 
     def _plot_surrogate_map(self, verbose: bool = True) -> None:
         """
         Generates and saves a 2-panel figure matching pillars_c6v_1.ipynb styling:
-        - Plot 1 (Left): Raw optimization evaluated points colored by FOM (1/Cost) using LogNorm and 'cool' colormap.
-        - Plot 2 (Right): GP Surrogate model predicted FOM (1/Cost) contour landscape with LogNorm and 'cool' colormap,
+        - Plot 1 (Left): Raw optimization evaluated points colored by FOM (E[C]^-1) using LogNorm and 'cool' colormap.
+        - Plot 2 (Right): GP Surrogate model predicted FOM (E[C]^-1) contour landscape with LogNorm and 'cool' colormap,
           overlaid with sampled points and optimal point star.
         """
         import matplotlib.colors as mcolors
@@ -1069,6 +1183,9 @@ class BayesianOptimizer:
 
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6.0))
 
+            p1_label = f"${p1_name[0]}_{{{p1_name[1:]}}}/a$" if len(p1_name) > 1 and p1_name[1:].isdigit() else f"${p1_name}/a$"
+            p2_label = f"${p2_name[0]}_{{{p2_name[1:]}}}/a$" if len(p2_name) > 1 and p2_name[1:].isdigit() else f"${p2_name}/a$"
+
             # ---------------------------------------------------------
             # Plot 1 (Left): Raw Optimization Data
             # ---------------------------------------------------------
@@ -1080,8 +1197,8 @@ class BayesianOptimizer:
             best_x = Xi[best_idx]
             ax1.scatter(best_x[0], best_x[1], c="gold", edgecolors="black", marker="*", s=220, zorder=6, label="Optimal Point")
 
-            ax1.set_xlabel(f"${p1_name}/a$", fontsize=11)
-            ax1.set_ylabel(f"${p2_name}/a$", fontsize=11)
+            ax1.set_xlabel(p1_label, fontsize=11)
+            ax1.set_ylabel(p2_label, fontsize=11)
             ax1.set_title(f"(a) Evaluated Points ({target_str})", fontsize=12, fontweight="bold")
             ax1.set_xlim(float(b1[0]), float(b1[1]))
             ax1.set_ylim(float(b2[0]), float(b2[1]))
@@ -1099,8 +1216,8 @@ class BayesianOptimizer:
             ax2.scatter(Xi[:, 0], Xi[:, 1], c="white", edgecolors="black", s=25, alpha=0.7, label="Explored points", zorder=5)
             ax2.scatter(best_x[0], best_x[1], c="gold", edgecolors="black", marker="*", s=220, zorder=6, label="Optimal Point")
 
-            ax2.set_xlabel(f"${p1_name}/a$", fontsize=11)
-            ax2.set_ylabel(f"${p2_name}/a$", fontsize=11)
+            ax2.set_xlabel(p1_label, fontsize=11)
+            ax2.set_ylabel(p2_label, fontsize=11)
             ax2.set_title(f"(b) {target_str} Tracking", fontsize=12, fontweight="bold")
             ax2.set_xlim(float(b1[0]), float(b1[1]))
             ax2.set_ylim(float(b2[0]), float(b2[1]))
@@ -1114,7 +1231,7 @@ class BayesianOptimizer:
 
             # Shared Colorbar on the right matching pillars_c6v_1.ipynb
             cbar = fig.colorbar(heatmap, ax=[ax1, ax2], fraction=0.035, pad=0.04, extend="both", format=LogFormatterSciNotation())
-            cbar.set_label(r"1/$\mathrm{C}$", fontsize=13)
+            cbar.set_label(r"$\mathrm{E}[C]^{-1}$", fontsize=13)
             cbar.ax.tick_params(labelsize=9)
             cbar.ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2, 10), numticks=12))
             cbar.ax.yaxis.set_minor_formatter(plt.NullFormatter())
@@ -1129,6 +1246,145 @@ class BayesianOptimizer:
             plt.close()
             if verbose:
                 print(f"Saved surrogate map plot to '{surrogate_file}'")
+
+        else:
+            try:
+                from skopt.plots import plot_objective
+                fig, ax = plt.subplots(figsize=(10, 8))
+                plot_objective(self.optimizer, ax=ax)
+                plt.tight_layout()
+                plt.savefig(surrogate_file, dpi=200)
+                plt.close()
+                if verbose:
+                    print(f"Saved surrogate map plot to '{surrogate_file}'")
+            except Exception as e:
+                if verbose:
+                    print(f"Note: Could not generate multi-dimensional surrogate plot: {e}")
+
+    def _plot_iterations_map(self, verbose: bool = True) -> None:
+        """
+        Generates and saves a standalone figure plotting evaluated parameter points
+        colored by Iteration / Generation # using a discrete colormap and discrete colorbar.
+        """
+        import matplotlib.colors as mcolors
+        from matplotlib.ticker import FormatStrFormatter
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        if not hasattr(self.optimizer, "Xi") or not self.optimizer.Xi:
+            return
+
+        iterations_file = self.output_dir / "bo_iterations_map.png"
+
+        if len(self.param_names) == 2:
+            p1_name, p2_name = self.param_names[0], self.param_names[1]
+            b1 = self.param_bounds[0]
+            b2 = self.param_bounds[1]
+
+            Xi = np.array(self.optimizer.Xi)
+            yi = np.array(self.optimizer.yi)
+
+            generations_list = []
+            for idx, x_pt in enumerate(Xi):
+                matched_gen = 1
+                for r in self.records:
+                    r_pt = [r["params"][name] for name in self.param_names if name in r["params"]]
+                    if len(r_pt) == len(x_pt) and np.allclose(r_pt, x_pt, atol=1e-5):
+                        matched_gen = r.get("generation", 1)
+                        break
+                generations_list.append(matched_gen)
+
+            generations = np.array(generations_list)
+            unique_gens = sorted(list(set(generations)))
+            min_gen, max_gen = min(unique_gens), max(unique_gens)
+
+            # Determine divergence point (transition from initial sampling to active BO)
+            n_initial = self.opt_cfg.get("initial_points", 8)
+            initial_gens = [g for i, g in enumerate(generations_list) if i < n_initial]
+            n_initial_gens = max(initial_gens) if initial_gens else 1
+            div_point_gen = n_initial_gens + 0.5
+
+            # Stack two colormaps: spring (initial sampling) + winter (active BO)
+            cmap_spring = plt.get_cmap("spring")
+            cmap_winter = plt.get_cmap("winter")
+
+            init_gens_list = [g for g in unique_gens if g <= n_initial_gens]
+            bo_gens_list = [g for g in unique_gens if g > n_initial_gens]
+
+            n_init = len(init_gens_list)
+            n_bo = len(bo_gens_list)
+
+            if n_init == 1:
+                init_colors = [cmap_spring(0.5)]
+            else:
+                init_colors = [cmap_spring(v) for v in np.linspace(0.15, 0.85, n_init)]
+
+            if n_bo == 1:
+                bo_colors = [cmap_winter(0.5)]
+            elif n_bo > 1:
+                bo_colors = [cmap_winter(v) for v in np.linspace(0.15, 0.85, n_bo)]
+            else:
+                bo_colors = []
+
+            stacked_colors = init_colors + bo_colors
+            stacked_cmap = mcolors.ListedColormap(stacked_colors)
+            bounds_gen = np.arange(min_gen - 0.5, max_gen + 1.5, 1)
+            discrete_norm = mcolors.BoundaryNorm(bounds_gen, len(stacked_colors))
+
+            best_idx = int(np.argmin(yi))
+            best_x = Xi[best_idx]
+
+            p1_label = f"${p1_name[0]}_{{{p1_name[1:]}}}/a$" if len(p1_name) > 1 and p1_name[1:].isdigit() else f"${p1_name}/a$"
+            p2_label = f"${p2_name[0]}_{{{p2_name[1:]}}}/a$" if len(p2_name) > 1 and p2_name[1:].isdigit() else f"${p2_name}/a$"
+
+            fig, ax = plt.subplots(figsize=(7.5, 6.0))
+
+            sc = ax.scatter(
+                Xi[:, 0],
+                Xi[:, 1],
+                c=generations,
+                cmap=stacked_cmap,
+                norm=discrete_norm,
+                s=42,
+                edgecolors="black",
+                linewidths=0.5,
+                marker="o",
+                zorder=4,
+                label="Explored points",
+            )
+            ax.scatter(
+                best_x[0],
+                best_x[1],
+                c="gold",
+                edgecolors="black",
+                marker="*",
+                s=220,
+                zorder=6,
+                label="Optimal Point",
+            )
+
+            ax.set_xlabel(p1_label, fontsize=11)
+            ax.set_ylabel(p2_label, fontsize=11)
+            ax.set_title("Evaluated Points by Iteration", fontsize=12, fontweight="bold")
+            ax.set_xlim(float(b1[0]), float(b1[1]))
+            ax.set_ylim(float(b2[0]), float(b2[1]))
+            ax.set_aspect("equal", adjustable="box")
+            ax.grid(alpha=0.4, linestyle="--")
+            ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.1)
+            cbar = fig.colorbar(sc, cax=cax, ticks=np.arange(min_gen, max_gen + 1))
+            cbar.set_label("Iteration #", fontsize=11)
+            cbar.ax.tick_params(labelsize=9)
+
+            ax.legend(loc="upper right", facecolor="white", edgecolor="black", framealpha=0.9)
+
+            plt.tight_layout()
+            plt.savefig(iterations_file, dpi=200, bbox_inches="tight")
+            plt.close()
+            if verbose:
+                print(f"Saved iterations map plot to '{iterations_file}'")
 
 
 
@@ -1420,6 +1676,7 @@ class BayesianOptimizer:
 
         self._plot_convergence()
         self._plot_surrogate_map(verbose=True)
+        self._plot_iterations_map(verbose=True)
         self._plot_group_velocity_map(verbose=True)
         print(f"Plotting complete! All figures saved inside '{self.output_dir}'")
 

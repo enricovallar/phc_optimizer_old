@@ -13,8 +13,8 @@ simulation:
 # Optimization parameters (continuous search bounds for r1, r2)
 # Note: h is not included in variable search bounds
 parameters:
-  r1: [0.2, 0.4]
-  r2: [0.2, 0.4]
+  r1: [0.18, 0.4]
+  r2: [0.18, 0.4]
 
 # Fixed geometry & simulation parameters
 fixed_parameters:
@@ -29,7 +29,7 @@ target:
   irrep_occurrences: [2, 1, 1]
   min_band: 2                      # Minimum band index to check (excludes Band 1 - fundamental acoustic mode)
   degeneracy_tol: 0.00005           # Degeneracy tolerance (5e-3 aligned with hBN notebook)
-  target_cost: 0.0015              # Target cost floor (2.5e-3 aligned with hBN notebook)
+  target_cost: 0.0025              # Target cost floor (2.5e-3 aligned with hBN notebook)
   bypass_irrep_identification: false                                          
   mode_indices: [4,5,6]          # Exact band indices to target  
   check_slab_connectivity: true   # Or enforce_connectivity: true         
@@ -37,13 +37,14 @@ target:
   min_neck_width_px: 4             # Reject connections narrower than 4 grid  pixels wide
   compute_group_velocity: true   # Enables 2nd run for group velocity calculation 
   delta_k: 0.001                  # Offset from Gamma point (k = (delta_k, 0, 0))
+  vg_optimal_only: true                 # Only compute group velocity for optimal design (skips intermediate BO points)
 
 # Bayesian Optimizer settings
 optimizer:
-  max_iterations: 2               # Total optimization generations
-  batch_size: 32                  # Evaluations per batch
-  initial_points: 128              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
-  initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
+  max_iterations: 6              # Total optimization generations
+  batch_size: 24                  # Evaluations per batch
+  initial_points: 144              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
+  initial_sampling: "lhs"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
 
   objective_mode: "log"            # Cost mode: "log" (log10 cost)
   strategy: "cl_min"               # Constant liar strategy ("cl_min")
@@ -53,9 +54,11 @@ optimizer:
   grid_resolution: [16, 16]        # Grid points per parameter dimension (e.g.  8x8 = 64 points)
 
   n_jobs: -1                       # Number of parallel jobs for BO (1 = serial, >1 = parallel, -1 = all cores)
-  n_points: 1000                   # Number of points to sample for acquisition function optimization (default: 1000)
-  n_restarts_optimizer: 5          # Number of restarts for acquisition function optimization (default: 10)
+  acq_optimizer: "sampling"     
+  n_points: 500                   # Number of points to sample for acquisition function optimization (default: 1000)
+  n_restarts_optimizer: 1          # Number of restarts for acquisition function optimization (default: 10)
 
   model: "GP"                      # Base estimator surrogate model: "GP" (default)
-  acq_func: "LCB"                  # Lower Confidence Bound acquisition function (from hBN notebook)
-  acq_func_kwargs: {kappa: 6}    # Kappa parameter for LCB (from hBN notebook)
+  acq_func: "LCB"                  # Lower Confidence Bound acquisition function
+  acq_func_kwargs: {kappa: 5.0}      # Kappa parameter for LCB 
+  surrogate_colorbar_limits: [1, 1e3]

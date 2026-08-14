@@ -230,6 +230,9 @@ print("Optimal parameters:", results["optimal_parameters"])
 * **`bo_irreps.log`**: Detailed log of symmetry irrep mappings and triggered failsafe corrections.
 * **`bo_model.pkl`**: Serialized `skopt` Gaussian Process model checkpoint.
 * **`bo_convergence.png`**: Convergence trajectory plot (cost vs. evaluation count).
+* **`bo_surrogate_map.png`**: 2-panel figure showing evaluated parameter FOM and Gaussian Process surrogate landscape.
+* **`bo_iterations_map.png`**: Parameter search space map of evaluated points colored by discrete generation / iteration number.
+* **`bo_group_velocity_map.png`**: Group velocity distribution and top-band $v_g$ landscape.
 * **`best_params.json`**: Structured JSON containing the optimal parameters found.
 * **`band_structure_optimal.png`**: Full k-path band structure plot evaluated at the optimal parameters.
 
