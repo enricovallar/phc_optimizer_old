@@ -72,7 +72,7 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     sim.setdefault("output_dir", "bo_output")
     sim.setdefault("cores", 4)
     sim.setdefault("only_gamma", True)
-    sim.setdefault("local_workers", config.get("optimizer", {}).get("batch_size", 4))
+    sim.setdefault("local_workers", (config.get("optimizer") or config.get("optimization", {})).get("batch_size", 4))
     config["simulation"] = sim
 
 
@@ -99,7 +99,7 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     target.setdefault("delta_k", 0.01)
     config["target"] = target
 
-    opt = config.get("optimizer", {})
+    opt = config.get("optimizer") or config.get("optimization", {})
     opt.setdefault("max_iterations", 20)
     n_pts = opt.get("initial_points", opt.get("n_initial_points", opt.get("initial_steps", 8)))
     opt["initial_points"] = n_pts
