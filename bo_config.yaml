@@ -1,0 +1,66 @@
+# ==============================================================================
+# Photonic Crystal NZI & Dirac-like Cone Bayesian Optimization Configuration
+# ==============================================================================
+
+# Simulation execution settings
+simulation:
+  ctl_script: "main.ctl"          # MPB control script file to execute (located in work_dir)
+  work_dir: "."                   # Working directory containing ctl_script
+  output_dir: "bo_output"         # Subfolder created inside work_dir for optimization output files
+  cores: 4                        # Number of MPI cores per evaluation worker (single core if symmetries enabled)
+  only_gamma: true                # Evaluate ONLY the Gamma point (k=0) during BO for 10x-50x speedup
+
+# Optimization parameters (continuous search bounds: [min, max] in lattice units a)
+parameters:
+  r1: [0.15, 0.35]                # Primary cylinder radius r1
+  r2: [0.15, 0.35]                # Secondary cylinder radius r2
+
+# Fixed geometry & simulation parameters passed to MPB
+fixed_parameters:
+  resolution: 64                 # Grid resolution per unit cell length a
+  num-bands: 12                  # Total bands calculated (keep >= 10 for high-order irrep doublets)
+  h: 0.5                         # Slab thickness (in unit cell length a)
+
+# Target band symmetry configuration
+target:
+  symmetry_group: "C4v"           # Point group symmetry: "C4v" (square lattice) or "C6v" (triangular lattice)
+  polarization: "te"              # Polarization parity: "te" (Hz-odd/Ez-even) or "tm" (Ez-odd/Hz-even)
+  
+  # Option A: Dynamic Irreducible Representation (Irrep) Matching
+  target_irreps: ["A_1", "E_1", "E_1"]  # Target irrep multiplet forming Dirac cone (e.g. A1 + E1)
+  irrep_occurrences: [1, 1, 1]          # Occurrence index of each irrep above min_band (1 = 1st occurrence)
+  min_band: 2                           # Lowest band index to inspect (excludes Band 1 acoustic mode)
+  degeneracy_tol: 0.005                 # Frequency threshold (delta_omega) to trigger failsafe relabeling
+  target_cost: 0.0025                   # Target cost floor below which active learning stops penalizing noise
+  
+  # Option B: Direct Static Mode Indices (Bypasses automatic irrep identification)
+  bypass_irrep_identification: false    # Set to true to bypass irrep identification and track static bands
+  mode_indices: [2, 3, 4]               # Explicit band indices to target directly when bypass is true
+
+# Bayesian Optimizer & Gaussian Process (GP) settings
+optimizer:
+  grid_evaluation: false          # Set to true (or bypass_optimization: true) to evaluate uniform grid & fit GP
+  grid_resolution: [10, 10]       # Uniform grid resolution per dimension (e.g. 10x10 = 100 points)
+  
+  max_iterations: 15              # Guided BO generations after initial sampling
+  batch_size: 4                   # Candidates evaluated concurrently per generation
+  initial_points: 16              # Total initial sampling points (e.g. 16 points = 4 initial batches of 4)
+  initial_sampling: "sobol"       # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
+  model: "GP"                     # Surrogate model: "GP" (Gaussian Process)
+  acq_func: "LCB"                 # Acquisition function: "LCB" (Lower Confidence Bound) or "gp_hedge"
+  acq_func_kwargs: {kappa: 3.5}   # Acquisition function kwargs (e.g. kappa=3.5 for LCB)
+  objective_mode: "log"           # Cost metric mode: "log" (log10 cost) or "linear"
+  strategy: "cl_min"              # Constant liar batch strategy: "cl_min", "cl_mean", or "cl_max"
+  save_surrogate_freq: 1          # Save bo_surrogate_map.png every N generations (0 = only at end)
+  random_state: 42                # Random seed for reproducibility
+
+postprocessing:
+  enabled: true                    # Set to true to extract continuous optimal 1D loci
+  threshold_percentile: 90.0       # Percentile cutoff to isolate high-FOM candidate ridge
+  min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
+  max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
+  smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
+  spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
+  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
+  plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png

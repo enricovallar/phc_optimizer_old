@@ -42,3 +42,14 @@ optimizer:
   strategy: "cl_min"               # Constant liar strategy ("cl_min", "cl_mean", "cl_max")
   save_surrogate_freq: 0           # Update bo_surrogate_map.png every N generations (0 = only at end)
   random_state: 42
+
+postprocessing:
+  enabled: true                    # Set to true to extract continuous optimal 1D loci
+  threshold_percentile: 90.0       # Percentile cutoff to isolate high-FOM candidate ridge
+  min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
+  max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
+  smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
+  spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
+  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
+  plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png

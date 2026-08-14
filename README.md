@@ -211,6 +211,17 @@ optimizer:
   strategy: "cl_min"
   grid_evaluation: false           # Set to true (or bypass_optimization: true) to evaluate uniform grid & fit GP model
   grid_resolution: [10, 10]        # Grid resolution per dimension (e.g. 10x10)
+
+postprocessing:
+  enabled: true                    # Set to true to extract continuous optimal 1D loci
+  threshold_percentile: 90.0       # Percentile cutoff to isolate high-FOM candidate ridge
+  min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
+  max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
+  smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
+  spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
+  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
+  plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png
 ```
 
 ### Python API Usage
@@ -230,10 +241,12 @@ print("Optimal parameters:", results["optimal_parameters"])
 * **`bo_irreps.log`**: Detailed log of symmetry irrep mappings and triggered failsafe corrections.
 * **`bo_model.pkl`**: Serialized `skopt` Gaussian Process model checkpoint.
 * **`bo_convergence.png`**: Convergence trajectory plot and parameter points colored by iteration.
-* **`bo_surrogate_map.png`**: 2-panel figure showing evaluated parameter FOM and Gaussian Process surrogate landscape.
+* **`bo_surrogate_map.png`**: 2-panel figure showing evaluated parameter FOM and Gaussian Process surrogate landscape with optional optimal degeneracy locus overlay.
 * **`bo_group_velocity_map.png`**: Group velocity distribution and top-band $v_g$ landscape.
+* **`bo_locus.csv`**: Parametric coordinates `(t, r1, r2, predicted_FOM)` of the extracted optimal degeneracy curve.
+* **`bo_loci.json`**: Structured metadata and coordinates for all detected optimal loci.
 * **`best_params.json`**: Structured JSON containing the optimal parameters found.
-* **`band_structure_optimal.png`**: Full k-path band structure plot evaluated at the optimal parameters.
+* **`band_structure.png`**: Full k-path band structure plot evaluated at the optimal parameters, auto-zoomed to target Dirac bands.
 
 
 

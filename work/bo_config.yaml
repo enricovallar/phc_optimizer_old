@@ -17,8 +17,9 @@ parameters:
 
 # Fixed geometry & simulation parameters
 fixed_parameters:
-  resolution: 16
+  resolution: 32
   num-bands: 10
+  h: 1e20
 
 # Target band symmetry configuration
 target:
@@ -34,7 +35,7 @@ target:
 
 # Bayesian Optimizer settings
 optimizer:
-  max_iterations: 2               # Total optimization generations
+  max_iterations: 0              # Total optimization generations
   batch_size: 20                  # Evaluations per batch
   initial_points: 64              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
   initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
@@ -44,6 +45,16 @@ optimizer:
   objective_mode: "log"            # Cost mode: "log" (log10 cost)
   strategy: "cl_min"               # Constant liar strategy ("cl_min")
   save_surrogate_freq: 1           # Update bo_surrogate_map.png every N generations (0 = only at end)
-  random_state: 42
   grid_evaluation: true          # Set to true (or bypass_optimization: true) to bypass BO
   grid_resolution: [16, 16]        # Grid points per parameter dimension (e.g.  8x8 = 64 points)
+
+postprocessing:
+  enabled: true                    # Set to true to extract continuous optimal 1D loci
+  threshold_percentile: 90.0       # Percentile cutoff to isolate high-FOM candidate ridge
+  min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
+  max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
+  smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
+  spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
+  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
+  plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png

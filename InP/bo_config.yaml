@@ -60,6 +60,18 @@ optimizer:
 
   model: "GP"                      # Base estimator surrogate model: "GP" (default)
   acq_func: "LCB"                  # Lower Confidence Bound acquisition function
-  acq_func_kwargs: {kappa: 8.0}      # Kappa parameter for LCB 
-  neglect_sigma: false             # Set to true to neglect posterior uncertainty sigma in surrogate FOM map (plots 10^-mu)
+  acq_func_kwargs: {kappa: 7.0}    # Kappa parameter for LCB 
+  neglect_sigma: false              # Set to true to neglect posterior uncertainty sigma in surrogate FOM map (plots 10^-mu)
   surrogate_colorbar_limits: [1, 1e3]
+
+# Postprocessing: Degeneracy Loci & Manifold Extraction
+postprocessing:
+  enabled: true                    # Set to true to extract continuous optimal 1D loci
+  threshold_percentile: 90.0       # Percentile cutoff to isolate the high-FOM candidate ridge (e.g. top 10%)
+  min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
+  max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
+  smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
+  spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
+  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
+  plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png

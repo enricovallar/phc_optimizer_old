@@ -117,8 +117,18 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     opt.setdefault("neglect_sigma", False)
     config["optimizer"] = opt
 
-
-
+    post = config.get("postprocessing", {})
+    post.setdefault("enabled", False)
+    post.setdefault("method", "skeleton_spline")
+    post.setdefault("threshold_percentile", 90.0)
+    post.setdefault("min_locus_area_px", 25)
+    post.setdefault("max_loci", post.get("number_of_loci", 1))
+    post.setdefault("smoothness", 0.001)
+    post.setdefault("spline_degree", 3)
+    post.setdefault("sample_points", 50)
+    post.setdefault("export_csv", True)
+    post.setdefault("plot_overlay", True)
+    config["postprocessing"] = post
 
     return config
 
@@ -304,6 +314,7 @@ class BayesianOptimizer:
         self.fixed_params = config.get("fixed_parameters", {})
         self.target_cfg = config["target"]
         self.opt_cfg = config["optimizer"]
+        self.post_cfg = config.get("postprocessing", {})
 
         self.param_names = list(self.params_cfg.keys())
         self.param_bounds = [self.params_cfg[k] for k in self.param_names]
@@ -1227,6 +1238,44 @@ class BayesianOptimizer:
             heatmap = ax2.contourf(
                 X1, X2, predicted_e_c_inv, levels=levels, cmap="cool", norm=log_norm, extend="both"
             )
+
+            # ---------------------------------------------------------
+            # Postprocessing: Parametric Optimal Loci Extraction
+            # ---------------------------------------------------------
+            post_cfg = getattr(self, "post_cfg", {}) or {}
+            if post_cfg.get("enabled", False):
+                try:
+                    from .locus import extract_optimal_loci, export_loci_to_csv, export_loci_to_json
+                    loci = extract_optimal_loci(x1, x2, predicted_e_c_inv, post_cfg)
+                    if loci:
+                        if post_cfg.get("plot_overlay", True):
+                            for locus in loci:
+                                l_id = locus["locus_id"]
+                                r1_pts = locus["r1"]
+                                r2_pts = locus["r2"]
+                                lbl_text = "Optimal Locus" if len(loci) == 1 else f"Locus #{l_id}"
+                                ax2.plot(
+                                    r1_pts,
+                                    r2_pts,
+                                    color="#00FF66",
+                                    linestyle="--",
+                                    linewidth=2.2,
+                                    alpha=0.95,
+                                    label=lbl_text,
+                                    zorder=7,
+                                )
+
+                        if post_cfg.get("export_csv", True):
+                            csv_path = self.output_dir / "bo_locus.csv"
+                            export_loci_to_csv(loci, csv_path)
+                            if verbose:
+                                print(f"Saved extracted locus data to '{csv_path}'")
+
+                        json_path = self.output_dir / "bo_loci.json"
+                        export_loci_to_json(loci, json_path)
+                except Exception as e:
+                    if verbose:
+                        print(f"Note: Postprocessing locus extraction notice: {e}")
 
             ax2.scatter(Xi[:, 0], Xi[:, 1], c="white", edgecolors="black", s=25, alpha=0.7, label="Explored points", zorder=5)
             ax2.scatter(best_x[0], best_x[1], c="gold", edgecolors="black", marker="*", s=220, zorder=6, label="Optimal Point")
