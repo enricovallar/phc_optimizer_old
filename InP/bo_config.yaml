@@ -18,8 +18,8 @@ parameters:
 
 # Fixed geometry & simulation parameters
 fixed_parameters:
-  resolution: 32
-  num-bands: 10
+  resolution: 96
+  num-bands: 8
 
 # Target band symmetry configuration
 target:
@@ -41,10 +41,10 @@ target:
 
 # Bayesian Optimizer settings
 optimizer:
-  max_iterations: 6              # Total optimization generations
+  max_iterations: 0              # Total optimization generations
   batch_size: 24                  # Evaluations per batch
-  initial_points: 144              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
-  initial_sampling: "lhs"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
+  initial_points: 168              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
+  initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
 
   objective_mode: "log"            # Cost mode: "log" (log10 cost)
   strategy: "cl_min"               # Constant liar strategy ("cl_min")
@@ -60,5 +60,6 @@ optimizer:
 
   model: "GP"                      # Base estimator surrogate model: "GP" (default)
   acq_func: "LCB"                  # Lower Confidence Bound acquisition function
-  acq_func_kwargs: {kappa: 5.0}      # Kappa parameter for LCB 
+  acq_func_kwargs: {kappa: 8.0}      # Kappa parameter for LCB 
+  neglect_sigma: false             # Set to true to neglect posterior uncertainty sigma in surrogate FOM map (plots 10^-mu)
   surrogate_colorbar_limits: [1, 1e3]

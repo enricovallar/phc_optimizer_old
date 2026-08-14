@@ -114,6 +114,7 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     opt.setdefault("strategy", "cl_min")
     opt.setdefault("save_surrogate_freq", 0)  # Default 0: save only at the end
     opt.setdefault("random_state", 42)
+    opt.setdefault("neglect_sigma", False)
     config["optimizer"] = opt
 
 
@@ -1142,10 +1143,21 @@ class BayesianOptimizer:
 
             raw_costs = np.array(raw_costs_list)
 
-            # Compute Expectation Value of Cost E[C] and its inverse E[C]^-1
-            # For y = log10(C), C is Log-Normal: E[C] = 10^(mu + (ln(10)/2) * std^2)
+            # Compute Expectation Value of Cost E[C] (or deterministic mean if neglect_sigma is True)
+            include_sigma = not bool(
+                self.opt_cfg.get("neglect_sigma", False)
+                or self.opt_cfg.get("surrogate_neglect_sigma", False)
+                or (self.opt_cfg.get("surrogate_include_std") is False)
+                or (self.opt_cfg.get("include_uncertainty") is False)
+            )
+
             if mode == "log":
-                exp_c_grid = 10 ** (mu_grid + (np.log(10) / 2.0) * (std_grid ** 2))
+                if include_sigma:
+                    # For y = log10(C), C is Log-Normal: E[C] = 10^(mu + (ln(10)/2) * std^2)
+                    exp_c_grid = 10 ** (mu_grid + (np.log(10) / 2.0) * (std_grid ** 2))
+                else:
+                    # Neglect posterior uncertainty: deterministic mean C = 10^mu
+                    exp_c_grid = 10 ** mu_grid
             else:
                 exp_c_grid = mu_grid
 

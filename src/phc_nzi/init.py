@@ -70,6 +70,8 @@ optimizer:
   strategy: "cl_min"              # Constant liar batch strategy: "cl_min", "cl_mean", or "cl_max"
   save_surrogate_freq: 1          # Save bo_surrogate_map.png every N generations (0 = only at end)
   random_state: 42                # Random seed for reproducibility
+  neglect_sigma: false            # Set to true to neglect posterior uncertainty sigma in surrogate FOM map (plots 10^-mu)
+  surrogate_colorbar_limits: [1, 1e3] # Colorbar limits [vmin, vmax] for surrogate map
 """
 
 MAIN_CTL_TEMPLATE = """; ==============================================================================
