@@ -67,7 +67,7 @@ optimizer:
 # Postprocessing: Degeneracy Loci & Manifold Extraction
 postprocessing:
   enabled: true                    # Set to true to extract continuous optimal 1D loci
-  threshold_percentile: 90.0       # Percentile cutoff to isolate the high-FOM candidate ridge (e.g. top 10%)
+  threshold_percentile: 70.0       # Percentile cutoff to isolate the continuous high-FOM ridge (e.g. top 30%)
   min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
   max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
   smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
