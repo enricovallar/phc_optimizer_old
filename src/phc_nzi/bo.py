@@ -894,7 +894,6 @@ class BayesianOptimizer:
         # Plot convergence curve, surrogate map, iterations map & group velocity map
         self._plot_convergence()
         self._plot_surrogate_map()
-        self._plot_iterations_map()
         self._plot_group_velocity_map()
 
         # Run final full k-path validation simulation
@@ -931,7 +930,7 @@ class BayesianOptimizer:
         n_initial_iters = max(initial_iters) if initial_iters else 1
         div_point_iter = n_initial_iters + 0.5
 
-        # Stack two colormaps: spring (initial sampling) + winter (active BO)
+        # Stack colors: single uniform color for initial sampling + winter colormap for active BO
         cmap_spring = plt.get_cmap("spring")
         cmap_winter = plt.get_cmap("winter")
 
@@ -941,10 +940,8 @@ class BayesianOptimizer:
         n_init = len(init_iters_list)
         n_bo = len(bo_iters_list)
 
-        if n_init == 1:
-            init_colors = [cmap_spring(0.5)]
-        else:
-            init_colors = [cmap_spring(v) for v in np.linspace(0.15, 0.85, n_init)]
+        single_init_color = cmap_spring(0.4)
+        init_colors = [single_init_color] * n_init
 
         if n_bo == 1:
             bo_colors = [cmap_winter(0.5)]
@@ -1042,7 +1039,7 @@ class BayesianOptimizer:
             ax1.legend(loc="upper left")
 
         # ---------------------------------------------------------
-        # Plot 2 (Right / (b)): Convergence vs. Iteration #
+        # Plot 2 (Right / (b)): E[C]^-1 Distribution vs. Iteration #
         # ---------------------------------------------------------
         for i, it in enumerate(unique_iters):
             mask = (iterations == it)
@@ -1050,15 +1047,15 @@ class BayesianOptimizer:
             it_foms = foms[mask]
             ax2.scatter([it] * len(it_foms), it_foms, color=c_it, s=40, edgecolors="black", linewidths=0.4, zorder=4, alpha=0.85)
 
-        # Background regions with subtle spring and winter tints
-        ax2.axvspan(min_iter - 0.5, div_point_iter, color=cmap_spring(0.5), alpha=0.10, label="Initial Phase (Spring)")
+        # Background regions with subtle initial and winter tints
+        ax2.axvspan(min_iter - 0.5, div_point_iter, color=single_init_color, alpha=0.10, label="Initial Phase")
         ax2.axvspan(div_point_iter, max_iter + 0.5, color=cmap_winter(0.5), alpha=0.10, label="BO Phase (Winter)")
         ax2.axvline(x=div_point_iter, color="gray", linestyle="--", alpha=0.8, label="BO Phase Start")
 
         ax2.set_yscale("log")
         ax2.set_xlabel("Iteration #", fontsize=11)
         ax2.set_ylabel(r"$\mathrm{E}[C]^{-1}$", fontsize=13)
-        ax2.set_title("(b) Convergence vs. Iteration #", fontsize=12, fontweight="bold")
+        ax2.set_title(r"(b) $\mathrm{E}[C]^{-1}$ Distribution vs. Iteration #", fontsize=12, fontweight="bold")
         ax2.set_xticks(np.arange(min_iter, max_iter + 1))
         ax2.set_xlim(min_iter - 0.5, max_iter + 0.5)
         ax2.grid(True, which="both", ls="--", alpha=0.4)
@@ -1269,147 +1266,7 @@ class BayesianOptimizer:
                 if verbose:
                     print(f"Note: Could not generate multi-dimensional surrogate plot: {e}")
 
-    def _plot_iterations_map(self, verbose: bool = True) -> None:
-        """
-        Generates and saves a standalone figure plotting evaluated parameter points
-        colored by Iteration / Generation # using a discrete colormap and discrete colorbar.
-        """
-        import matplotlib.colors as mcolors
-        from matplotlib.ticker import FormatStrFormatter
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-        if not hasattr(self.optimizer, "Xi") or not self.optimizer.Xi:
-            return
-
-        iterations_file = self.output_dir / "bo_iterations_map.png"
-
-        if len(self.param_names) == 2:
-            p1_name, p2_name = self.param_names[0], self.param_names[1]
-            b1 = self.param_bounds[0]
-            b2 = self.param_bounds[1]
-
-            Xi = np.array(self.optimizer.Xi)
-            yi = np.array(self.optimizer.yi)
-
-            generations_list = []
-            for idx, x_pt in enumerate(Xi):
-                matched_gen = 1
-                for r in self.records:
-                    r_pt = [r["params"][name] for name in self.param_names if name in r["params"]]
-                    if len(r_pt) == len(x_pt) and np.allclose(r_pt, x_pt, atol=1e-5):
-                        matched_gen = r.get("generation", 1)
-                        break
-                generations_list.append(matched_gen)
-
-            generations = np.array(generations_list)
-            unique_gens = sorted(list(set(generations)))
-            min_gen, max_gen = min(unique_gens), max(unique_gens)
-
-            # Determine divergence point (transition from initial sampling to active BO)
-            n_initial = self.opt_cfg.get("initial_points", 8)
-            initial_gens = [g for i, g in enumerate(generations_list) if i < n_initial]
-            n_initial_gens = max(initial_gens) if initial_gens else 1
-            div_point_gen = n_initial_gens + 0.5
-
-            # Stack two colormaps: spring (initial sampling) + winter (active BO)
-            cmap_spring = plt.get_cmap("spring")
-            cmap_winter = plt.get_cmap("winter")
-
-            init_gens_list = [g for g in unique_gens if g <= n_initial_gens]
-            bo_gens_list = [g for g in unique_gens if g > n_initial_gens]
-
-            n_init = len(init_gens_list)
-            n_bo = len(bo_gens_list)
-
-            if n_init == 1:
-                init_colors = [cmap_spring(0.5)]
-            else:
-                init_colors = [cmap_spring(v) for v in np.linspace(0.15, 0.85, n_init)]
-
-            if n_bo == 1:
-                bo_colors = [cmap_winter(0.5)]
-            elif n_bo > 1:
-                bo_colors = [cmap_winter(v) for v in np.linspace(0.15, 0.85, n_bo)]
-            else:
-                bo_colors = []
-
-            stacked_colors = init_colors + bo_colors
-            stacked_cmap = mcolors.ListedColormap(stacked_colors)
-            bounds_gen = np.arange(min_gen - 0.5, max_gen + 1.5, 1)
-            discrete_norm = mcolors.BoundaryNorm(bounds_gen, len(stacked_colors))
-
-            best_idx = int(np.argmin(yi))
-            best_x = Xi[best_idx]
-
-            p1_label = f"${p1_name[0]}_{{{p1_name[1:]}}}/a$" if len(p1_name) > 1 and p1_name[1:].isdigit() else f"${p1_name}/a$"
-            p2_label = f"${p2_name[0]}_{{{p2_name[1:]}}}/a$" if len(p2_name) > 1 and p2_name[1:].isdigit() else f"${p2_name}/a$"
-
-            fig, ax = plt.subplots(figsize=(7.5, 6.0))
-
-            sc = ax.scatter(
-                Xi[:, 0],
-                Xi[:, 1],
-                c=generations,
-                cmap=stacked_cmap,
-                norm=discrete_norm,
-                s=42,
-                edgecolors="black",
-                linewidths=0.5,
-                marker="o",
-                zorder=4,
-                label="Explored points",
-            )
-            ax.scatter(
-                best_x[0],
-                best_x[1],
-                c="gold",
-                edgecolors="black",
-                marker="*",
-                s=220,
-                zorder=6,
-                label="Optimal Point",
-            )
-
-            ax.set_xlabel(p1_label, fontsize=11)
-            ax.set_ylabel(p2_label, fontsize=11)
-            ax.set_title("Evaluated Points by Iteration", fontsize=12, fontweight="bold")
-            ax.set_xlim(float(b1[0]), float(b1[1]))
-            ax.set_ylim(float(b2[0]), float(b2[1]))
-            ax.set_aspect("equal", adjustable="box")
-            ax.grid(alpha=0.4, linestyle="--")
-            ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-            ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.1)
-            cbar = fig.colorbar(sc, cax=cax, ticks=np.arange(min_gen, max_gen + 1))
-            cbar.set_label("Iteration #", fontsize=11)
-            cbar.ax.tick_params(labelsize=9)
-
-            ax.legend(loc="upper right", facecolor="white", edgecolor="black", framealpha=0.9)
-
-            plt.tight_layout()
-            plt.savefig(iterations_file, dpi=200, bbox_inches="tight")
-            plt.close()
-            if verbose:
-                print(f"Saved iterations map plot to '{iterations_file}'")
-
-
-
-
-        else:
-            try:
-                from skopt.plots import plot_objective
-                fig, ax = plt.subplots(figsize=(10, 8))
-                plot_objective(self.optimizer, ax=ax)
-                plt.tight_layout()
-                plt.savefig(surrogate_file, dpi=200)
-                plt.close()
-                if verbose:
-                    print(f"Saved surrogate map plot to '{surrogate_file}'")
-            except Exception as e:
-                if verbose:
-                    print(f"Note: Could not generate multi-dimensional surrogate plot: {e}")
 
 
 
@@ -1684,7 +1541,6 @@ class BayesianOptimizer:
 
         self._plot_convergence()
         self._plot_surrogate_map(verbose=True)
-        self._plot_iterations_map(verbose=True)
         self._plot_group_velocity_map(verbose=True)
         print(f"Plotting complete! All figures saved inside '{self.output_dir}'")
 
