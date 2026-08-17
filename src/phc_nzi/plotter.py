@@ -1,6 +1,7 @@
 import os
 import re
 import argparse
+import threading
 from pathlib import Path
 from typing import Union, List, Optional, Tuple, Dict, Any
 import numpy as np
@@ -8,6 +9,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import h5py
+
+_plot_lock = threading.Lock()
 
 
 def plot_band_structure(
@@ -95,139 +98,143 @@ def plot_band_structure(
     # Resolve k-path labels
     label_list = resolve_kpath_labels(labels, target_dir)
 
-    # Configure matplotlib style
-    setup_plot_style(style)
+    with _plot_lock:
+        # Configure matplotlib style
+        setup_plot_style(style)
 
-    fig, ax = plt.subplots(figsize=(8, 5.5), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(8, 5.5), dpi=dpi)
 
-    k_indices_ref: Optional[np.ndarray] = None
-    all_bands_list: List[np.ndarray] = []
+        k_indices_ref: Optional[np.ndarray] = None
+        all_bands_list: List[np.ndarray] = []
 
-    for fpath, color, mode_label in files_to_plot:
-        headers, data_matrix = load_data_file(fpath)
-        if data_matrix.shape[0] == 0:
-            continue
+        for fpath, color, mode_label in files_to_plot:
+            headers, data_matrix = load_data_file(fpath)
+            if data_matrix.shape[0] == 0:
+                continue
 
-        k_indices = data_matrix[:, 0]
+            k_indices = data_matrix[:, 0]
+            if k_indices_ref is None:
+                k_indices_ref = k_indices
+
+            bands_data = data_matrix[:, 5:]
+            num_bands = bands_data.shape[1]
+            all_bands_list.append(bands_data)
+
+            # Plot each band with no line (dots only)
+            for b in range(num_bands):
+                ax.plot(
+                    k_indices,
+                    bands_data[:, b],
+                    linestyle="None",
+                    marker="o",
+                    markersize=4.0,
+                    color=color,
+                    alpha=0.85,
+                    label=mode_label if b == 0 else ""  # Common legend entry per mode type
+                )
+
         if k_indices_ref is None:
-            k_indices_ref = k_indices
+            plt.close(fig)
+            raise ValueError(f"No numeric band data found in target files.")
 
-        bands_data = data_matrix[:, 5:]
-        num_bands = bands_data.shape[1]
-        all_bands_list.append(bands_data)
+        # Configure X-axis ticks & high-symmetry vertical lines
+        if label_list and len(label_list) > 1:
+            formatted_labels = [r"$\Gamma$" if l.lower() in ["gamma", "g"] else l for l in label_list]
+            tick_positions = np.linspace(k_indices_ref[0], k_indices_ref[-1], len(formatted_labels))
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(formatted_labels, fontsize=12, fontweight="bold")
 
-        # Plot each band with no line (dots only)
-        for b in range(num_bands):
-            ax.plot(
-                k_indices,
-                bands_data[:, b],
-                linestyle="None",
-                marker="o",
-                markersize=4.0,
-                color=color,
-                alpha=0.85,
-                label=mode_label if b == 0 else ""  # Common legend entry per mode type
-            )
-
-    if k_indices_ref is None:
-        raise ValueError(f"No numeric band data found in target files.")
-
-    # Configure X-axis ticks & high-symmetry vertical lines
-    if label_list and len(label_list) > 1:
-        formatted_labels = [r"$\Gamma$" if l.lower() in ["gamma", "g"] else l for l in label_list]
-        tick_positions = np.linspace(k_indices_ref[0], k_indices_ref[-1], len(formatted_labels))
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(formatted_labels, fontsize=12, fontweight="bold")
-
-        for pos in tick_positions:
-            ax.axvline(x=pos, color="#888888" if style == "light" else "#555555", linestyle="--", linewidth=0.8, alpha=0.7)
-    else:
-        ax.set_xlabel("k-point Index", fontsize=11, fontweight="bold")
-
-    # Configure Y-axis
-    ax.set_ylabel(r"Frequency ($\omega a / 2\pi c$)", fontsize=12, fontweight="bold")
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
-
-    # Highlight Photonic Band Gaps if requested
-    if highlight_gaps and len(all_bands_list) > 0:
-        combined_bands = np.hstack(all_bands_list)
-        gaps = find_photonic_band_gaps(combined_bands)
-        for g_idx, (gap_min, gap_max, gap_pct, lower_b) in enumerate(gaps):
-            ax.axhspan(gap_min, gap_max, color="#ff7f0e", alpha=0.22, label="Band Gap" if g_idx == 0 else "")
-            mid_y = (gap_min + gap_max) / 2.0
-            mid_x = (k_indices_ref[0] + k_indices_ref[-1]) / 2.0
-            ax.text(
-                mid_x,
-                mid_y,
-                f"Gap: {gap_pct:.1f}%",
-                horizontalalignment="center",
-                verticalalignment="center",
-                fontsize=9.5,
-                fontweight="bold",
-                color="#d95f02",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#d95f02", alpha=0.85)
-            )
-
-    ax.set_xlim(k_indices_ref[0], k_indices_ref[-1])
-    if ylim is not None:
-        ax.set_ylim(ylim[0], ylim[1])
-    elif bands is not None and len(bands) > 0 and len(all_bands_list) > 0:
-        min_b = min(bands)  # 1-indexed band number (e.g. 4)
-        max_b = max(bands)  # 1-indexed band number (e.g. 6)
-
-        # Filter bands array by polarization if specified
-        target_arrays = []
-        for idx, (fpath, _, _) in enumerate(files_to_plot):
-            fname_lower = fpath.name.lower()
-            if polarization:
-                pol_lower = polarization.lower()
-                if pol_lower in ["te", "zeven"] and ("te" in fname_lower or "zeven" in fname_lower):
-                    target_arrays.append(all_bands_list[idx])
-                elif pol_lower in ["tm", "zodd"] and ("tm" in fname_lower or "zodd" in fname_lower):
-                    target_arrays.append(all_bands_list[idx])
-            else:
-                target_arrays.append(all_bands_list[idx])
-        if not target_arrays:
-            target_arrays = all_bands_list
-
-        t_min_list = []
-        t_max_list = []
-        for b_arr in target_arrays:
-            n_cols = b_arr.shape[1]
-            col_min = max(0, min_b - 1)
-            col_max = min(n_cols - 1, max_b - 1)
-            if col_min < n_cols:
-                t_min_list.append(np.min(b_arr[:, col_min]))
-            if col_max < n_cols:
-                t_max_list.append(np.max(b_arr[:, col_max]))
-        if t_min_list and t_max_list:
-            ax.set_ylim(float(min(t_min_list)), float(max(t_max_list)))
+            for pos in tick_positions:
+                ax.axvline(x=pos, color="#888888" if style == "light" else "#555555", linestyle="--", linewidth=0.8, alpha=0.7)
         else:
+            ax.set_xlabel("k-point Index", fontsize=11, fontweight="bold")
+
+        # Configure Y-axis
+        ax.set_ylabel(r"Frequency ($\omega a / 2\pi c$)", fontsize=12, fontweight="bold")
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+
+        # Highlight Photonic Band Gaps if requested
+        if highlight_gaps and len(all_bands_list) > 0:
             combined_bands = np.hstack(all_bands_list)
-            ax.set_ylim(float(np.min(combined_bands)), float(np.max(combined_bands)))
-    elif len(all_bands_list) > 0:
-        combined_bands = np.hstack(all_bands_list)
-        min_f = float(np.min(combined_bands))
-        max_f = float(np.max(combined_bands))
-        ax.set_ylim(min_f, max_f)
-    else:
-        ax.set_ylim(bottom=0.0)
-    ax.grid(True, linestyle=":", alpha=0.5)
+            gaps = find_photonic_band_gaps(combined_bands)
+            for g_idx, (gap_min, gap_max, gap_pct, lower_b) in enumerate(gaps):
+                ax.axhspan(gap_min, gap_max, color="#ff7f0e", alpha=0.22, label="Band Gap" if g_idx == 0 else "")
+                mid_y = (gap_min + gap_max) / 2.0
+                mid_x = (k_indices_ref[0] + k_indices_ref[-1]) / 2.0
+                ax.text(
+                    mid_x,
+                    mid_y,
+                    f"Gap: {gap_pct:.1f}%",
+                    horizontalalignment="center",
+                    verticalalignment="center",
+                    fontsize=9.5,
+                    fontweight="bold",
+                    color="#d95f02",
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#d95f02", alpha=0.85)
+                )
 
-    ax.legend(loc="upper right", frameon=True, fontsize=9.5)
+        ax.set_xlim(k_indices_ref[0], k_indices_ref[-1])
+        if ylim is not None:
+            ax.set_ylim(ylim[0], ylim[1])
+        elif bands is not None and len(bands) > 0 and len(all_bands_list) > 0:
+            min_b = min(bands)  # 1-indexed band number (e.g. 4)
+            max_b = max(bands)  # 1-indexed band number (e.g. 6)
 
-    fig.tight_layout()
+            # Filter bands array by polarization if specified
+            target_arrays = []
+            for idx, (fpath, _, _) in enumerate(files_to_plot):
+                fname_lower = fpath.name.lower()
+                if polarization:
+                    pol_lower = polarization.lower()
+                    if pol_lower in ["te", "zeven"] and ("te" in fname_lower or "zeven" in fname_lower):
+                        target_arrays.append(all_bands_list[idx])
+                    elif pol_lower in ["tm", "zodd"] and ("tm" in fname_lower or "zodd" in fname_lower):
+                        target_arrays.append(all_bands_list[idx])
+                else:
+                    target_arrays.append(all_bands_list[idx])
+            if not target_arrays:
+                target_arrays = all_bands_list
 
-    if output_path is not None:
-        save_file = Path(output_path).resolve()
-        save_file.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_file, dpi=dpi, bbox_inches="tight")
-        print(f"Saved band structure plot to '{save_file}'")
+            t_min_list = []
+            t_max_list = []
+            for b_arr in target_arrays:
+                n_cols = b_arr.shape[1]
+                col_min = max(0, min_b - 1)
+                col_max = min(n_cols - 1, max_b - 1)
+                if col_min < n_cols:
+                    t_min_list.append(np.min(b_arr[:, col_min]))
+                if col_max < n_cols:
+                    t_max_list.append(np.max(b_arr[:, col_max]))
+            if t_min_list and t_max_list:
+                ax.set_ylim(float(min(t_min_list)), float(max(t_max_list)))
+            else:
+                combined_bands = np.hstack(all_bands_list)
+                ax.set_ylim(float(np.min(combined_bands)), float(np.max(combined_bands)))
+        elif len(all_bands_list) > 0:
+            combined_bands = np.hstack(all_bands_list)
+            min_f = float(np.min(combined_bands))
+            max_f = float(np.max(combined_bands))
+            ax.set_ylim(min_f, max_f)
+        else:
+            ax.set_ylim(bottom=0.0)
+        ax.grid(True, linestyle=":", alpha=0.5)
 
-    if show:
-        plt.show()
+        ax.legend(loc="upper right", frameon=True, fontsize=9.5)
 
-    return fig, ax
+        fig.tight_layout()
+
+        if output_path is not None:
+            save_file = Path(output_path).resolve()
+            save_file.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_file, dpi=dpi, bbox_inches="tight")
+            print(f"Saved band structure plot to '{save_file}'")
+
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
+
+        return fig, ax
 
 
 def plot_epsilon(
@@ -292,27 +299,30 @@ def plot_epsilon(
     else:
         raise ValueError(f"Unsupported array dimensions ({data.ndim}D) in HDF5 file")
 
-    fig, ax = plt.subplots(figsize=(6, 6), dpi=dpi)
-    im = ax.imshow(data_2d.T, origin="lower", cmap=cmap, interpolation="nearest")
+    with _plot_lock:
+        fig, ax = plt.subplots(figsize=(6, 6), dpi=dpi)
+        im = ax.imshow(data_2d.T, origin="lower", cmap=cmap, interpolation="nearest")
 
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(r"Permittivity $\epsilon$", fontsize=11, fontweight="bold")
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label(r"Permittivity $\epsilon$", fontsize=11, fontweight="bold")
 
-    ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-    ax.set_xlabel("Grid X", fontsize=10, fontweight="bold")
-    ax.set_ylabel("Grid Y", fontsize=10, fontweight="bold")
-    fig.tight_layout()
+        ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
+        ax.set_xlabel("Grid X", fontsize=10, fontweight="bold")
+        ax.set_ylabel("Grid Y", fontsize=10, fontweight="bold")
+        fig.tight_layout()
 
-    if output_path is not None:
-        save_file = Path(output_path).resolve()
-        save_file.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_file, dpi=dpi, bbox_inches="tight")
-        print(f"Saved dielectric epsilon plot to '{save_file}'")
+        if output_path is not None:
+            save_file = Path(output_path).resolve()
+            save_file.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_file, dpi=dpi, bbox_inches="tight")
+            print(f"Saved dielectric epsilon plot to '{save_file}'")
 
-    if show:
-        plt.show()
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
 
-    return fig, ax
+        return fig, ax
 
 
 def load_data_file(filepath: Path) -> Tuple[List[str], np.ndarray]:

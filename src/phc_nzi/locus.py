@@ -112,39 +112,66 @@ def skeletonize_mask(mask: np.ndarray) -> np.ndarray:
 
 def order_skeleton_points(pts_x: np.ndarray, pts_y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Orders disordered 2D skeleton pixel coordinates into a continuous sequential trajectory
-    from one endpoint to the other using greedy nearest-neighbor traversal.
+    Orders 2D skeleton pixel coordinates into a continuous sequential open trajectory
+    from one extremal endpoint to the other along the manifold spine using BFS graph diameter.
     """
     if len(pts_x) <= 2:
         return pts_x, pts_y
 
-    pts = np.c_[pts_x, pts_y]
-    n = len(pts)
+    n = len(pts_x)
 
-    # Find the extremal starting point (furthest from centroid along principal axis)
-    centroid = np.mean(pts, axis=0)
-    dists_from_centroid = np.linalg.norm(pts - centroid, axis=1)
-    start_idx = int(np.argmax(dists_from_centroid))
+    # Estimate local 8-connectivity neighbor distance threshold
+    diffs_x = np.abs(np.subtract.outer(pts_x, pts_x))
+    diffs_y = np.abs(np.subtract.outer(pts_y, pts_y))
+    nonzero_x = diffs_x[diffs_x > 1e-9]
+    nonzero_y = diffs_y[diffs_y > 1e-9]
+    dx = float(np.min(nonzero_x)) if nonzero_x.size > 0 else 1.0
+    dy = float(np.min(nonzero_y)) if nonzero_y.size > 0 else 1.0
+    diag_step = 1.5 * np.hypot(dx, dy)
 
-    unvisited = set(range(n))
-    ordered_indices = [start_idx]
-    unvisited.remove(start_idx)
+    # Build adjacency list
+    adj: List[List[int]] = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = np.hypot(pts_x[i] - pts_x[j], pts_y[i] - pts_y[j])
+            if d <= diag_step:
+                adj[i].append(j)
+                adj[j].append(i)
 
-    curr = start_idx
-    while unvisited:
-        curr_pt = pts[curr]
-        rem_indices = list(unvisited)
-        rem_pts = pts[rem_indices]
-        dists = np.linalg.norm(rem_pts - curr_pt, axis=1)
-        nearest_pos = int(np.argmin(dists))
-        next_idx = rem_indices[nearest_pos]
+    # 2-pass BFS to extract graph diameter (longest simple geodesic path)
+    def bfs_farthest(start_node: int) -> Tuple[int, Dict[int, int], Dict[int, Optional[int]]]:
+        dist = {start_node: 0}
+        parent: Dict[int, Optional[int]] = {start_node: None}
+        queue = [start_node]
+        farthest = start_node
+        while queue:
+            curr = queue.pop(0)
+            for nbr in adj[curr]:
+                if nbr not in dist:
+                    dist[nbr] = dist[curr] + 1
+                    parent[nbr] = curr
+                    queue.append(nbr)
+                    if dist[nbr] > dist[farthest]:
+                        farthest = nbr
+        return farthest, dist, parent
 
-        ordered_indices.append(next_idx)
-        unvisited.remove(next_idx)
-        curr = next_idx
+    node_a, _, _ = bfs_farthest(0)
+    node_b, dist_b, parent_b = bfs_farthest(node_a)
 
-    ordered_x = pts_x[ordered_indices]
-    ordered_y = pts_y[ordered_indices]
+    path = []
+    curr: Optional[int] = node_b
+    while curr is not None:
+        path.append(curr)
+        curr = parent_b.get(curr)
+    path = path[::-1]
+
+    if len(path) >= 2:
+        ordered_x = pts_x[path]
+        ordered_y = pts_y[path]
+    else:
+        ordered_x = pts_x
+        ordered_y = pts_y
+
     return ordered_x, ordered_y
 
 

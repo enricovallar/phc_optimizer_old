@@ -858,11 +858,10 @@ class BayesianOptimizer:
             pbar.update(1)
 
             if surrogate_freq > 0 and (gen + 1) % surrogate_freq == 0:
-                self._plot_surrogate_map(verbose=False)
+                self._plot_surrogate_map(final=False, verbose=False)
+                self._plot_convergence(verbose=False)
 
         pbar.close()
-
-
 
         # Save optimizer model checkpoint
         joblib.dump(self.optimizer, self.model_file)
@@ -889,8 +888,8 @@ class BayesianOptimizer:
             json.dump(best_summary, f, indent=2)
 
         # Plot convergence curve and surrogate map (which extracts and evaluates loci in locus_XX/pt_YY/)
-        self._plot_convergence()
-        self._plot_surrogate_map()
+        self._plot_convergence(verbose=True)
+        self._plot_surrogate_map(final=True, verbose=True)
 
         # Fallback single validation run only if postprocessing was disabled or produced no loci
         post_cfg = getattr(self, "post_cfg", {}) or {}
@@ -1067,7 +1066,7 @@ class BayesianOptimizer:
         if verbose:
             print(f"Saved convergence plot to '{conv_file}'")
 
-    def _plot_surrogate_map(self, verbose: bool = True) -> None:
+    def _plot_surrogate_map(self, final: bool = False, verbose: bool = True) -> None:
         """
         Generates and saves a 2-panel figure matching pillars_c6v_1.ipynb styling:
         - Plot 1 (Left): Raw optimization evaluated points colored by FOM (E[C]^-1) using LogNorm and 'cool' colormap.
@@ -1100,40 +1099,37 @@ class BayesianOptimizer:
             except Exception:
                 grid_points_transformed = grid_points
 
-            # Evaluate surrogate model predictions with std (uncertainty) to compute Expectation Value E[C]
-            mode = self.opt_cfg.get("objective_mode", "log")
-            try:
-                if hasattr(model, "predict"):
-                    try:
+            # Predict surrogate landscape
+            if hasattr(model, "predict"):
+                try:
+                    if hasattr(model, "return_std"):
                         mu_grid, std_grid = model.predict(grid_points_transformed, return_std=True)
-                    except Exception:
+                    else:
+                        mu_grid, std_grid = model.predict(grid_points_transformed, return_std=True)
+                except Exception:
+                    try:
                         mu_grid = model.predict(grid_points_transformed)
                         std_grid = np.zeros_like(mu_grid)
-                else:
-                    mu_grid = np.zeros(len(grid_points))
-                    std_grid = np.zeros_like(mu_grid)
-
+                    except Exception:
+                        mu_grid = np.zeros(len(grid_points))
+                        std_grid = np.zeros_like(mu_grid)
                 mu_grid = mu_grid.reshape(X1.shape)
                 std_grid = std_grid.reshape(X1.shape)
-            except Exception as e:
-                if verbose:
-                    print(f"Note: Could not compute surrogate predictions: {e}")
-                return
+            else:
+                mu_grid = np.zeros(X1.shape)
+                std_grid = np.zeros(X1.shape)
 
+            mode = self.opt_cfg.get("objective_mode", "log").lower()
             Xi = np.array(self.optimizer.Xi)
             yi = np.array(self.optimizer.yi)
 
-            # Extract raw evaluated costs by matching Xi parameter values to records unambiguously
+            # Map raw cost values to original physical scale
             raw_costs_list = []
-            for idx, x_pt in enumerate(Xi):
-                matched_cost = None
-                for r in self.records:
-                    r_pt = [r["params"][name] for name in self.param_names if name in r["params"]]
-                    if len(r_pt) == len(x_pt) and np.allclose(r_pt, x_pt, atol=1e-5):
-                        matched_cost = r["raw_cost"]
-                        break
-                if matched_cost is not None:
-                    raw_costs_list.append(matched_cost)
+            for idx in range(len(Xi)):
+                rec = self.records[idx] if idx < len(self.records) else {}
+                raw_c = rec.get("raw_cost")
+                if raw_c is not None and not np.isnan(raw_c):
+                    raw_costs_list.append(float(raw_c))
                 elif mode == "log":
                     raw_costs_list.append(10 ** float(yi[idx]))
                 else:
@@ -1227,10 +1223,10 @@ class BayesianOptimizer:
             )
 
             # ---------------------------------------------------------
-            # Postprocessing: Parametric Optimal Loci Extraction & Evaluation
+            # Postprocessing: Parametric Optimal Loci Extraction & Evaluation (Final pass only)
             # ---------------------------------------------------------
             post_cfg = getattr(self, "post_cfg", {}) or {}
-            if post_cfg.get("enabled", False):
+            if final and post_cfg.get("enabled", False):
                 try:
                     from .locus import extract_optimal_loci, export_loci_to_json
                     loci = extract_optimal_loci(x1, x2, predicted_e_c_inv, post_cfg)
@@ -1697,7 +1693,7 @@ class BayesianOptimizer:
                     cores=self.sim_cfg.get("cores", 1),
                     wd=bs_dir,
                     auto_extract=True,
-                    auto_plot=True,
+                    auto_plot=False,
                     only_gamma=False,
                     verbose=False,
                 )
@@ -1715,21 +1711,27 @@ class BayesianOptimizer:
                         shutil.move(str(item), str(dest))
                     shutil.rmtree(raw_out_dir, ignore_errors=True)
 
-                # Re-zoom band structure to target bands
-                bs_png = bs_dir / "band_structure.png"
-                if bs_png.is_file() and target_bands:
-                    try:
-                        from .plotter import plot_band_structure
-                        plot_band_structure(
-                            data_path=bs_dir,
-                            output_path=bs_png,
-                            bands=target_bands,
-                            polarization=pol,
-                            highlight_gaps=False,
-                            style="light",
-                        )
-                    except Exception:
-                        pass
+                # Generate clean band structure plot and epsilon map
+                try:
+                    from .plotter import plot_band_structure, plot_epsilon
+                    plot_band_structure(
+                        data_path=bs_dir,
+                        output_path=bs_dir / "band_structure.png",
+                        bands=target_bands,
+                        polarization=pol,
+                        highlight_gaps=False,
+                        style="light",
+                    )
+                    for h5_candidate in list(bs_dir.glob("*-epsilon.h5")):
+                        if not h5_candidate.name.endswith(".converted.h5"):
+                            plot_epsilon(
+                                h5_path=h5_candidate,
+                                output_path=bs_dir / "epsilon_map.png",
+                                rectify=True,
+                            )
+                            break
+                except Exception:
+                    pass
 
                 # 2. Single-point group velocity simulation at k = (delta_k, 0, 0)
                 vg_params = {**self.fixed_params, **p_dict}
