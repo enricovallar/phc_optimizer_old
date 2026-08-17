@@ -34,3 +34,9 @@
 (define-param only-gamma? false)
 (define-param only_gamma? false)
 
+; Dynamic delta-k group velocity calculation flags
+(define-param delta-k-mode? false)
+(define-param delta_k_mode? false)
+(define-param delta-k 0.01)
+(define-param delta_k 0.01)
+

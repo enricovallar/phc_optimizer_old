@@ -360,7 +360,7 @@ def extract_group_velocities(
         if not k_map:
             continue
 
-        # Look up k-vector coordinates from freq_data if available
+        # Look up k-vector coordinates from freq_data if available, or parse from log lines directly
         k_coords_lookup: Dict[int, Tuple[float, float, float, float]] = {}
         pol_freq_key = f"{pol}freqs"
         if freq_data and pol_freq_key in freq_data:
@@ -383,6 +383,23 @@ def extract_group_velocities(
                         k_coords_lookup[kidx_val] = (k1_val, k2_val, k3_val, kmag_val)
                     except (ValueError, IndexError):
                         pass
+
+        if not k_coords_lookup:
+            freq_prefix = f"{pol}freqs:"
+            for line in lines:
+                l_str = line.strip()
+                if l_str.startswith(freq_prefix):
+                    p_parts = [p.strip() for p in l_str.split(",") if p.strip()]
+                    if len(p_parts) >= 6:
+                        try:
+                            kidx_val = int(p_parts[1])
+                            k1_val = float(p_parts[2])
+                            k2_val = float(p_parts[3])
+                            k3_val = float(p_parts[4])
+                            kmag_val = float(p_parts[5])
+                            k_coords_lookup[kidx_val] = (k1_val, k2_val, k3_val, kmag_val)
+                        except (ValueError, IndexError):
+                            pass
 
         # Build matrix rows and flat records
         matrix_rows: List[List[Union[int, float]]] = []

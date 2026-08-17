@@ -290,14 +290,20 @@ print("Optimal parameters:", results["optimal_parameters"])
 │
 ├── locus_01/                  # Subfolder for Locus #1
 │   ├── bo_locus_profile.png   # 3-panel profile: (a) (r1, r2) Trajectory with Vg colormap, (b) Vg(t), (c) FOM(t)
-│   ├── bo_locus.csv           # Coordinates (r1, r2), FOM, and group velocity for each point
+│   ├── bo_locus.csv           # Coordinates (r1, r2), FOM, residual gap, and group velocity
 │   │
-│   ├── pt_01/                 # Full MPB simulation for Point #1
-│   │   ├── band_structure.png # Target-band zoomed band structure plot
-│   │   ├── epsilon_map.png    # Dielectric profile plot
-│   │   ├── output.out         # MPB simulation log (symmetries + group velocities)
-│   │   ├── group_velocities.json / tevelocity.data
-│   │   └── point_info.json    # Parameter coordinates & metrics
+│   ├── pt_01/                 # Point #1
+│   │   ├── point_info.json    # Parameter coordinates, residual gap, and delta_k metrics
+│   │   ├── band_structure/    # Full k-path MPB simulation & plots
+│   │   │   ├── band_structure.png
+│   │   │   ├── epsilon_map.png
+│   │   │   ├── output.out
+│   │   │   └── symmetries.json
+│   │   └── group_velocity/    # Dedicated MPB simulation at k = (delta_k, 0, 0)
+│   │       ├── output.out
+│   │       ├── group_velocities.json
+│   │       └── tevelocity.data
+│   │
 │   ├── pt_02/
 │   │   └── ...
 │   └── pt_N/

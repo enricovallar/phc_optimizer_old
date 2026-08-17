@@ -169,6 +169,11 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (if (or only-gamma? only_gamma?)
     (set! k-points (list (vector3 0 0 0))))
 
+(define-param delta-k 0.01)
+; Override k-points for small delta-k group velocity run
+(if (or delta-k-mode? delta_k_mode?)
+    (set! k-points (list (vector3 delta-k 0 0))))
+
 ; Solver callbacks
 (if run-te? (run-solver-with-callbacks run-te))
 (if run-tm? (run-solver-with-callbacks run-tm))

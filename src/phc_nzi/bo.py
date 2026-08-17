@@ -1707,9 +1707,10 @@ class BayesianOptimizer:
             target_bands = best_rec.get("target_bands")
         if not target_bands:
             target_bands = self.target_cfg.get("mode_indices") or self.target_cfg.get("target_bands") or [4, 5, 6]
-
-        pol = self.target_cfg.get("polarization", "te").lower()
-        delta_k = float(self.target_cfg.get("delta_k", 0.01))
+        pol = str(self.target_cfg.get("polarization", "te")).lower()
+        post_cfg = getattr(self, "post_cfg", {}) or {}
+        post_vg = post_cfg.get("group_velocity", {}) if isinstance(post_cfg.get("group_velocity"), dict) else {}
+        delta_k = float(post_vg.get("delta_k", post_cfg.get("delta_k", self.target_cfg.get("delta_k", 0.001))))
 
         worker_cand = (
             self.sim_cfg.get("parallel_workers")
@@ -1752,30 +1753,35 @@ class BayesianOptimizer:
 
             def run_single_point(task_args):
                 pt_idx, t_norm, p_dict, fom_val, gap_val, pt_dir = task_args
-                combined = {**self.fixed_params, **p_dict}
-                combined["display_symmetry?"] = "true"
-                combined["display_group_velocity?"] = "true"
-                combined["delta_k"] = delta_k
-                combined["delta_k_mode?"] = "false"
-                combined["only_gamma?"] = "false"
+                bs_dir = pt_dir / "band_structure"
+                vg_dir = pt_dir / "group_velocity"
+                bs_dir.mkdir(parents=True, exist_ok=True)
+                vg_dir.mkdir(parents=True, exist_ok=True)
+
+                # 1. Full band structure simulation (k-path)
+                bs_params = {**self.fixed_params, **p_dict}
+                bs_params["display_symmetry?"] = "true"
+                bs_params["display_group_velocity?"] = "false"
+                bs_params["only_gamma?"] = "false"
+                bs_params["delta_k_mode?"] = "false"
 
                 run_hpc(
                     script=self._get_script_path(),
-                    mpb_command_line_params=combined,
+                    mpb_command_line_params=bs_params,
                     use_mpi=False,
-                    cores=self.sim_cfg.get("cores", 4),
-                    wd=pt_dir,
+                    cores=self.sim_cfg.get("cores", 1),
+                    wd=bs_dir,
                     auto_extract=True,
                     auto_plot=True,
                     only_gamma=False,
                     verbose=False,
                 )
 
-                # Move files from pt_dir/output to pt_dir if output subdirectory exists
-                raw_out_dir = pt_dir / "output"
+                # Move files from bs_dir/output to bs_dir if output subdirectory exists
+                raw_out_dir = bs_dir / "output"
                 if raw_out_dir.is_dir():
                     for item in raw_out_dir.iterdir():
-                        dest = pt_dir / item.name
+                        dest = bs_dir / item.name
                         if dest.exists():
                             if dest.is_dir():
                                 shutil.rmtree(dest)
@@ -1785,12 +1791,12 @@ class BayesianOptimizer:
                     shutil.rmtree(raw_out_dir, ignore_errors=True)
 
                 # Re-zoom band structure to target bands
-                bs_png = pt_dir / "band_structure.png"
+                bs_png = bs_dir / "band_structure.png"
                 if bs_png.is_file() and target_bands:
                     try:
                         from .plotter import plot_band_structure
                         plot_band_structure(
-                            data_path=pt_dir,
+                            data_path=bs_dir,
                             output_path=bs_png,
                             bands=target_bands,
                             polarization=pol,
@@ -1800,12 +1806,46 @@ class BayesianOptimizer:
                     except Exception:
                         pass
 
-                # Extract group velocity
-                out_log = pt_dir / "output.out"
+                # 2. Single-point group velocity simulation at k = (delta_k, 0, 0)
+                vg_params = {**self.fixed_params, **p_dict}
+                vg_params["display_symmetry?"] = "false"
+                vg_params["display_group_velocity?"] = "true"
+                vg_params["only_gamma?"] = "false"
+                vg_params["delta_k_mode?"] = "true"
+                vg_params["delta_k"] = delta_k
+                vg_params["delta-k"] = delta_k
+
+                run_hpc(
+                    script=self._get_script_path(),
+                    mpb_command_line_params=vg_params,
+                    use_mpi=False,
+                    cores=self.sim_cfg.get("cores", 1),
+                    wd=vg_dir,
+                    auto_extract=True,
+                    auto_plot=False,
+                    only_gamma=False,
+                    verbose=False,
+                )
+
+                # Move files from vg_dir/output to vg_dir
+                raw_vg_out = vg_dir / "output"
+                if raw_vg_out.is_dir():
+                    for item in raw_vg_out.iterdir():
+                        dest = vg_dir / item.name
+                        if dest.exists():
+                            if dest.is_dir():
+                                shutil.rmtree(dest)
+                            else:
+                                dest.unlink()
+                        shutil.move(str(item), str(dest))
+                    shutil.rmtree(raw_vg_out, ignore_errors=True)
+
+                # Extract group velocity at delta_k
+                vg_log = vg_dir / "output.out"
                 vg_val = 0.0
-                if out_log.is_file():
+                if vg_log.is_file():
                     from .extractor import extract_group_velocities
-                    vg_data = extract_group_velocities(output_path=out_log, save_data=False, verbose=False)
+                    vg_data = extract_group_velocities(output_path=vg_log, save_data=True, verbose=False)
                     flat_recs = vg_data.get("flat_records", [])
                     target_vgs = []
                     for rec_v in flat_recs:
@@ -1817,13 +1857,14 @@ class BayesianOptimizer:
                     if target_vgs:
                         vg_val = float(max(target_vgs))
 
-                # Save point_info.json
+                # Save point_info.json in pt_dir
                 pt_info = {
                     "locus_id": l_id,
                     "point_index": pt_idx,
                     "t_normalized": t_norm,
                     "params": p_dict,
                     "group_velocity": vg_val,
+                    "delta_k": delta_k,
                     "predicted_fom": fom_val,
                     "residual_gap": gap_val,
                     "target_bands": target_bands,
@@ -1870,12 +1911,12 @@ class BayesianOptimizer:
 
     def _get_script_path(self) -> Path:
         script_cfg = self.sim_cfg.get("ctl_script", "example.ctl")
-        path = Path(script_cfg)
-        if path.is_file():
-            return path.resolve()
         w_path = (self.work_dir / script_cfg).resolve()
         if w_path.is_file():
             return w_path
+        path = Path(script_cfg)
+        if path.is_file():
+            return path.resolve()
         return Path(script_cfg)
 
     def _run_validation(self, best_params: Dict[str, float]) -> None:
