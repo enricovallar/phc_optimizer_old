@@ -904,13 +904,15 @@ class BayesianOptimizer:
         with open(self.best_params_file, "w") as f:
             json.dump(best_summary, f, indent=2)
 
-        # Plot convergence curve, surrogate map, iterations map & group velocity map
+        # Plot convergence curve and surrogate map (which extracts and evaluates loci in locus_XX/pt_YY/)
         self._plot_convergence()
         self._plot_surrogate_map()
-        self._plot_group_velocity_map()
 
-        # Run final full k-path validation simulation
-        self._run_validation(best_params)
+        # Fallback single validation run only if postprocessing was disabled or produced no loci
+        post_cfg = getattr(self, "post_cfg", {}) or {}
+        locus_dirs = list(self.output_dir.glob("locus_*"))
+        if not post_cfg.get("enabled", False) or not locus_dirs:
+            self._run_validation(best_params)
 
         return best_summary
 
@@ -1241,22 +1243,16 @@ class BayesianOptimizer:
             )
 
             # ---------------------------------------------------------
-            # Postprocessing: Parametric Optimal Loci Extraction
+            # Postprocessing: Parametric Optimal Loci Extraction & Evaluation
             # ---------------------------------------------------------
             post_cfg = getattr(self, "post_cfg", {}) or {}
             if post_cfg.get("enabled", False):
                 try:
-                    from .locus import extract_optimal_loci, export_loci_to_csv, export_loci_to_json, plot_locus_profiles
+                    from .locus import extract_optimal_loci, export_loci_to_json
                     loci = extract_optimal_loci(x1, x2, predicted_e_c_inv, post_cfg)
                     if loci:
-                        # Optionally compute group velocities along the sampled locus points
-                        compute_locus_vg = bool(
-                            post_cfg.get("compute_group_velocity", False)
-                            or post_cfg.get("calculate_group_velocity", False)
-                            or self.target_cfg.get("compute_group_velocity", False)
-                        )
-                        if compute_locus_vg:
-                            loci = self._evaluate_locus_group_velocities(loci, verbose=verbose)
+                        # Run full simulations for each point along each locus into locus_XX/pt_YY/
+                        loci = self._evaluate_locus_simulations(loci, verbose=verbose)
 
                         if post_cfg.get("plot_overlay", True):
                             for locus in loci:
@@ -1275,23 +1271,8 @@ class BayesianOptimizer:
                                     zorder=7,
                                 )
 
-                        if post_cfg.get("export_csv", True):
-                            csv_path = self.output_dir / "bo_locus.csv"
-                            export_loci_to_csv(loci, csv_path)
-                            if verbose:
-                                print(f"Saved extracted locus data to '{csv_path}'")
-
                         json_path = self.output_dir / "bo_loci.json"
                         export_loci_to_json(loci, json_path)
-
-                        # Generate 3-panel Locus Profile figure (Parameter Space, Group Velocity & FOM)
-                        plot_locus_profiles(
-                            loci,
-                            param_names=self.param_names,
-                            param_bounds=self.param_bounds,
-                            output_path=self.output_dir / "bo_locus_profile.png",
-                            title=f"Optimal Locus ({target_str})"
-                        )
                 except Exception as e:
                     if verbose:
                         print(f"Note: Postprocessing locus extraction notice: {e}")
@@ -1398,17 +1379,31 @@ class BayesianOptimizer:
 
         return 0.0
 
-    def _evaluate_locus_group_velocities(
+    def _evaluate_locus_simulations(
         self, loci: List[Dict[str, Any]], verbose: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        Evaluates group velocities for all sampled points along each extracted locus in parallel.
+        Executes full MPB simulations for every sampled point along each extracted locus
+        in parallel, organizing all outputs into dedicated per-locus and per-point directories:
+          <output_dir>/locus_01/
+            bo_locus.csv
+            bo_locus_profile.png
+            pt_01/
+              output.out, band_structure.png, epsilon.png, point_info.json, ...
+            pt_02/
+              ...
         """
+        import shutil
+
         target_bands = None
         if hasattr(self, "records") and self.records:
             best_rec = min(self.records, key=lambda r: r.get("raw_cost", float("inf")))
+            target_bands = best_rec.get("target_bands")
         if not target_bands:
             target_bands = self.target_cfg.get("mode_indices") or self.target_cfg.get("target_bands") or [4, 5, 6]
+
+        pol = self.target_cfg.get("polarization", "te").lower()
+        delta_k = float(self.target_cfg.get("delta_k", 0.01))
 
         worker_cand = (
             self.sim_cfg.get("parallel_workers")
@@ -1419,179 +1414,143 @@ class BayesianOptimizer:
         max_workers = min(max(1, int(worker_cand)), 24)
 
         for locus in loci:
+            l_id = locus["locus_id"]
+            locus_dir = self.output_dir / f"locus_{l_id:02d}"
+            locus_dir.mkdir(parents=True, exist_ok=True)
+
             r1_pts = locus["r1"]
             r2_pts = locus["r2"]
+            fom_pts = locus.get("fom", [])
             n_pts = len(r1_pts)
-            if verbose:
-                print(f"Evaluating group velocities along Locus #{locus['locus_id']} ({n_pts} points, {max_workers} concurrent workers)...")
 
-            point_dicts = []
+            if verbose:
+                print(f"Running full MPB simulations for Locus #{l_id} ({n_pts} points into '{locus_dir.name}/', {max_workers} concurrent workers)...")
+
+            point_tasks = []
             for i in range(n_pts):
+                pt_idx = i + 1
+                pt_dir = locus_dir / f"pt_{pt_idx:02d}"
+                pt_dir.mkdir(parents=True, exist_ok=True)
+
                 p_entry = {}
                 if len(self.param_names) >= 1:
                     p_entry[self.param_names[0]] = float(r1_pts[i])
                 if len(self.param_names) >= 2:
                     p_entry[self.param_names[1]] = float(r2_pts[i])
-                point_dicts.append(p_entry)
 
-            def eval_one(p_dict):
-                return self._evaluate_group_velocity_at_point(p_dict, target_bands)
+                t_norm = float(i) / max(n_pts - 1, 1)
+                fom_val = float(fom_pts[i]) if i < len(fom_pts) else 0.0
+                point_tasks.append((pt_idx, t_norm, p_entry, fom_val, pt_dir))
+
+            def run_single_point(task_args):
+                pt_idx, t_norm, p_dict, fom_val, pt_dir = task_args
+                combined = {**self.fixed_params, **p_dict}
+                combined["display_symmetry?"] = "true"
+                combined["display_group_velocity?"] = "true"
+                combined["delta_k"] = delta_k
+                combined["delta_k_mode?"] = "false"
+                combined["only_gamma?"] = "false"
+
+                run_hpc(
+                    script=self._get_script_path(),
+                    mpb_command_line_params=combined,
+                    use_mpi=False,
+                    cores=self.sim_cfg.get("cores", 4),
+                    wd=pt_dir,
+                    auto_extract=True,
+                    auto_plot=True,
+                    only_gamma=False,
+                    verbose=False,
+                )
+
+                # Move files from pt_dir/output to pt_dir if output subdirectory exists
+                raw_out_dir = pt_dir / "output"
+                if raw_out_dir.is_dir():
+                    for item in raw_out_dir.iterdir():
+                        dest = pt_dir / item.name
+                        if dest.exists():
+                            if dest.is_dir():
+                                shutil.rmtree(dest)
+                            else:
+                                dest.unlink()
+                        shutil.move(str(item), str(dest))
+                    shutil.rmtree(raw_out_dir, ignore_errors=True)
+
+                # Re-zoom band structure to target bands
+                bs_png = pt_dir / "band_structure.png"
+                if bs_png.is_file() and target_bands:
+                    try:
+                        from .plotter import plot_band_structure
+                        plot_band_structure(
+                            data_path=pt_dir,
+                            output_path=bs_png,
+                            bands=target_bands,
+                            polarization=pol,
+                            highlight_gaps=False,
+                            style="light",
+                        )
+                    except Exception:
+                        pass
+
+                # Extract group velocity
+                out_log = pt_dir / "output.out"
+                vg_val = 0.0
+                if out_log.is_file():
+                    from .extractor import extract_group_velocities
+                    vg_data = extract_group_velocities(output_path=out_log, save_data=False, verbose=False)
+                    flat_recs = vg_data.get("flat_records", [])
+                    target_vgs = []
+                    for rec_v in flat_recs:
+                        if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) in target_bands:
+                            vx_val = float(rec_v.get("vx", 0.0))
+                            if np.isnan(vx_val):
+                                vx_val = float(rec_v.get("vg_mag", 0.0))
+                            target_vgs.append(vx_val)
+                    if target_vgs:
+                        vg_val = float(max(target_vgs))
+
+                # Save point_info.json
+                pt_info = {
+                    "locus_id": l_id,
+                    "point_index": pt_idx,
+                    "t_normalized": t_norm,
+                    "params": p_dict,
+                    "group_velocity": vg_val,
+                    "predicted_fom": fom_val,
+                    "target_bands": target_bands,
+                }
+                with open(pt_dir / "point_info.json", "w") as f:
+                    json.dump(pt_info, f, indent=2)
+
+                return pt_idx - 1, vg_val
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                vgs = list(executor.map(eval_one, point_dicts))
+                results = list(executor.map(run_single_point, point_tasks))
 
-            locus["group_velocity"] = [float(v) for v in vgs]
-            locus["vg"] = locus["group_velocity"]
-            if verbose and vgs:
-                print(f"  Locus #{locus['locus_id']} Vg range: [{min(vgs):.4f}, {max(vgs):.4f}] c")
+            vg_ordered = [0.0] * n_pts
+            for idx_0, vg_v in results:
+                vg_ordered[idx_0] = vg_v
+
+            locus["group_velocity"] = vg_ordered
+            locus["vg"] = vg_ordered
+
+            # Save per-locus CSV and 3-panel profile figure
+            from .locus import export_loci_to_csv, plot_locus_profiles
+            locus_csv = locus_dir / "bo_locus.csv"
+            export_loci_to_csv([locus], locus_csv)
+            if verbose:
+                print(f"Saved Locus #{l_id} table to '{locus_csv}'")
+
+            locus_fig = locus_dir / "bo_locus_profile.png"
+            plot_locus_profiles(
+                [locus],
+                param_names=self.param_names,
+                param_bounds=self.param_bounds,
+                output_path=locus_fig,
+                title=f"Optimal Locus #{l_id} ({self.target_cfg.get('irreps_str', 'Target')})",
+            )
 
         return loci
-
-    def _plot_group_velocity_map(self, verbose: bool = True) -> None:
-        """
-        Generates and saves a 2-panel figure of target band group velocity vg (in units of c)
-        computed at a small delta_k from Gamma for optimal/peak points.
-        """
-        import matplotlib.colors as mcolors
-        from matplotlib.ticker import FormatStrFormatter
-
-        compute_vg = bool(
-            self.target_cfg.get("compute_group_velocity", False)
-            or self.target_cfg.get("calculate_group_velocity", False)
-        )
-
-        # Check if best optimal GP peak point needs group velocity calculation
-        if compute_vg and hasattr(self.optimizer, "yi") and len(self.optimizer.yi) > 0:
-            best_idx = int(np.argmin(self.optimizer.yi))
-            best_params = dict(zip(self.param_names, [float(x) for x in self.optimizer.Xi[best_idx]]))
-            best_rec = self.records[best_idx] if best_idx < len(self.records) else {}
-            if best_rec and best_rec.get("group_velocity") is None:
-                t_bands = best_rec.get("target_bands", [4, 5, 6])
-                vg_peak = self._evaluate_group_velocity_at_point(best_params, t_bands)
-                best_rec["group_velocity"] = vg_peak
-
-        vg_records = [r for r in self.records if r.get("group_velocity") is not None]
-        if not vg_records:
-            return
-
-        fig_file = self.output_dir / "bo_group_velocity_map.png"
-        data_file = self.output_dir / "bo_group_velocity.data"
-
-        # Write tabular group velocity data file
-        with open(data_file, "w") as f:
-            p_hdr = " ".join(f"{k:<10s}" for k in self.param_names)
-            f.write(f"# Eval  Gen  {p_hdr} Top_Band  vg_mag (c)   Cost\n")
-            for r in vg_records:
-                p_str = " ".join(f"{float(r['params'][k]):<10.6f}" for k in self.param_names)
-                top_b = max(r.get("target_bands", [6])) if r.get("target_bands") else 0
-                vg_v = float(r.get("group_velocity", 0.0))
-                c_v = float(r.get("raw_cost", 0.0))
-                f.write(f"{r['eval_number']:<6d} {r['generation']:<4d} {p_str} {top_b:<9d} {vg_v:<12.6f} {c_v:<10.6f}\n")
-
-        if len(self.param_names) == 2:
-            p1_name, p2_name = self.param_names[0], self.param_names[1]
-            b1 = self.param_bounds[0]
-            b2 = self.param_bounds[1]
-
-            Xi_vg = np.array([[r["params"][p1_name], r["params"][p2_name]] for r in vg_records])
-            yi_vg = np.array([r["group_velocity"] for r in vg_records])
-
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6.0))
-
-            top_b_num = max(vg_records[0].get("target_bands", [6])) if vg_records[0].get("target_bands") else "Top"
-            delta_k = self.target_cfg.get("delta_k", 0.01)
-
-            # Fit surrogate on group velocity using configured model type (GP, RF, ET, GBRT)
-            try:
-                model_type = str(self.opt_cfg.get("model", "GP")).upper()
-                if model_type in ("RF", "RANDOM_FOREST"):
-                    from skopt.learning import RandomForestRegressor
-                    reg_vg = RandomForestRegressor(random_state=42)
-                elif model_type in ("ET", "EXTRA_TREES"):
-                    from skopt.learning import ExtraTreesRegressor
-                    reg_vg = ExtraTreesRegressor(random_state=42)
-                elif model_type in ("GBRT", "GRADIENT_BOOSTING"):
-                    from skopt.learning import GradientBoostingQuantileRegressor
-                    reg_vg = GradientBoostingQuantileRegressor(random_state=42)
-                else:
-                    from skopt.learning import GaussianProcessRegressor
-                    reg_vg = GaussianProcessRegressor(random_state=42)
-
-                reg_vg.fit(self.optimizer.space.transform(Xi_vg.tolist()), yi_vg)
-
-                x1 = np.linspace(float(b1[0]), float(b1[1]), 150)
-                x2 = np.linspace(float(b2[0]), float(b2[1]), 150)
-                X1, X2 = np.meshgrid(x1, x2)
-                grid_pts = np.c_[X1.ravel(), X2.ravel()]
-                grid_trans = self.optimizer.space.transform(grid_pts.tolist())
-
-                mu_vg = reg_vg.predict(grid_trans).reshape(X1.shape)
-            except Exception:
-                mu_vg = None
-
-            # Colorbar limits based on explicit config or mean +/- std deviation of group velocity
-            vg_user_limits = (
-                self.opt_cfg.get("vg_colorbar_limits")
-                or self.opt_cfg.get("group_velocity_colorbar_limits")
-            )
-            if vg_user_limits and len(vg_user_limits) == 2:
-                vmin, vmax = float(vg_user_limits[0]), float(vg_user_limits[1])
-            else:
-                mean_vg = float(np.mean(yi_vg))
-                std_vg = float(np.std(yi_vg))
-
-                vmin = max(0.0, mean_vg - std_vg)
-                vmax = mean_vg + std_vg
-                if vmax <= vmin:
-                    vmin = float(np.min(yi_vg))
-                    vmax = float(np.max(yi_vg))
-                    if vmax <= vmin:
-                        vmax = vmin + 1e-4
-
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-            # Plot 1: Evaluated Group Velocity Scatter
-            sc = ax1.scatter(
-                Xi_vg[:, 0], Xi_vg[:, 1], c=yi_vg, cmap="viridis", norm=norm, s=40, edgecolors="black", linewidths=0.5, zorder=4
-            )
-            ax1.set_xlabel(f"${p1_name}/a$", fontsize=11)
-            ax1.set_ylabel(f"${p2_name}/a$", fontsize=11)
-            ax1.set_title(f"(a) Top Band #{top_b_num} $v_g$ at $\Delta k={delta_k}$ ($c$)", fontsize=12, fontweight="bold")
-            ax1.set_xlim(float(b1[0]), float(b1[1]))
-            ax1.set_ylim(float(b2[0]), float(b2[1]))
-            ax1.set_aspect("equal", adjustable="box")
-            ax1.grid(alpha=0.4, linestyle="--")
-
-            # Continuous smooth contour levels
-            cont_levels = np.linspace(vmin, vmax, 256)
-
-            # Plot 2: GP Surrogate Map of Group Velocity
-            if mu_vg is not None:
-                heatmap = ax2.contourf(X1, X2, mu_vg, levels=cont_levels, cmap="viridis", norm=norm, extend="both")
-                ax2.scatter(Xi_vg[:, 0], Xi_vg[:, 1], c="white", edgecolors="black", s=25, alpha=0.7, label="Evaluated points", zorder=5)
-            else:
-                heatmap = sc
-
-            ax2.set_xlabel(f"${p1_name}/a$", fontsize=11)
-            ax2.set_ylabel(f"${p2_name}/a$", fontsize=11)
-            ax2.set_title(f"(b) GP Predicted $v_g$ Surface ($c$)", fontsize=12, fontweight="bold")
-            ax2.set_xlim(float(b1[0]), float(b1[1]))
-            ax2.set_ylim(float(b2[0]), float(b2[1]))
-            ax2.set_aspect("equal", adjustable="box")
-            ax2.grid(alpha=0.4, linestyle="--")
-
-            for ax in (ax1, ax2):
-                ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-                ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-
-            cbar = fig.colorbar(heatmap, ax=[ax1, ax2], fraction=0.035, pad=0.04, extend="both")
-            cbar.set_label(r"$v_g$ ($c$)", fontsize=13)
-            cbar.ax.tick_params(labelsize=9)
-
-            plt.savefig(fig_file, dpi=200, bbox_inches="tight")
-            plt.close(fig)
-            if verbose:
-                print(f"Saved group velocity map plot to '{fig_file}'")
 
     def _get_script_path(self) -> Path:
         script_cfg = self.sim_cfg.get("ctl_script", "example.ctl")
@@ -1694,7 +1653,6 @@ class BayesianOptimizer:
 
         self._plot_convergence()
         self._plot_surrogate_map(verbose=True)
-        self._plot_group_velocity_map(verbose=True)
         print(f"Plotting complete! All figures saved inside '{self.output_dir}'")
 
 

@@ -214,12 +214,13 @@ optimizer:
 
 postprocessing:
   enabled: true                    # Set to true to extract continuous optimal 1D loci
-  threshold_percentile: 90.0       # Percentile cutoff to isolate high-FOM candidate ridge
+  threshold_percentile: 70.0       # Percentile cutoff to isolate the continuous high-FOM ridge (e.g. top 30%)
   min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
   max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
   smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
   spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
-  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  sample_points: 20                # Number of evaluation points sampled along the locus curve
+  compute_group_velocity: true     # Calculate group velocity at each sampled locus point in parallel
   export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
   plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png
 ```
@@ -230,23 +231,41 @@ postprocessing:
 from phc_nzi import run_bo, BayesianOptimizer
 
 # Run optimization using YAML configuration
-results = run_bo(config_path="ctl/bo_config.yaml", work_dir="work")
+results = run_bo(config_path="InP/bo_config.yaml", work_dir="InP")
 
 print("Optimal parameters:", results["optimal_parameters"])
 ```
 
-### Generated Optimization Output Files (`work/bo_output/`):
+### Generated Optimization Output Structure (`bo_output/`):
 
-* **`bo_trajectory.data`**: Tabular log of evaluation parameter sets, gap costs, and Dirac frequencies.
-* **`bo_irreps.log`**: Detailed log of symmetry irrep mappings and triggered failsafe corrections.
-* **`bo_model.pkl`**: Serialized `skopt` Gaussian Process model checkpoint.
-* **`bo_convergence.png`**: Convergence trajectory plot and parameter points colored by iteration.
-* **`bo_surrogate_map.png`**: 2-panel figure showing evaluated parameter FOM and Gaussian Process surrogate landscape with optional optimal degeneracy locus overlay.
-* **`bo_group_velocity_map.png`**: Group velocity distribution and top-band $v_g$ landscape.
-* **`bo_locus.csv`**: Parametric coordinates `(t, r1, r2, predicted_FOM)` of the extracted optimal degeneracy curve.
-* **`bo_loci.json`**: Structured metadata and coordinates for all detected optimal loci.
-* **`best_params.json`**: Structured JSON containing the optimal parameters found.
-* **`band_structure.png`**: Full k-path band structure plot evaluated at the optimal parameters, auto-zoomed to target Dirac bands.
+```text
+<bo_output>/
+├── bo_convergence.png         # Optimization convergence & sample trajectory plot
+├── bo_surrogate_map.png       # 2-panel surrogate FOM map with green dashed optimal locus overlay
+├── bo_loci.json               # JSON metadata and coordinates for all extracted loci
+├── bo_model.pkl               # Serialized GP surrogate model
+│
+├── locus_01/                  # Subfolder for Locus #1
+│   ├── bo_locus_profile.png   # 3-panel profile: (a) (r1, r2) Trajectory with Vg colormap, (b) Vg(t), (c) FOM(t)
+│   ├── bo_locus.csv           # Coordinates (r1, r2), FOM, and group velocity for each point
+│   │
+│   ├── pt_01/                 # Full MPB simulation for Point #1
+│   │   ├── band_structure.png # Target-band zoomed band structure plot
+│   │   ├── epsilon_map.png    # Dielectric profile plot
+│   │   ├── output.out         # MPB simulation log (symmetries + group velocities)
+│   │   ├── group_velocities.json / tevelocity.data
+│   │   └── point_info.json    # Parameter coordinates & metrics
+│   ├── pt_02/
+│   │   └── ...
+│   └── pt_N/
+│       └── ...
+│
+└── locus_02/                  # (If multiple loci are detected)
+    ├── bo_locus_profile.png
+    ├── bo_locus.csv
+    ├── pt_01/
+    └── ...
+```
 
 
 
