@@ -290,16 +290,63 @@ def extract_optimal_loci(
     return loci_results
 
 
+def compute_curve_normals(r1_pts: np.ndarray, r2_pts: np.ndarray) -> np.ndarray:
+    """
+    Computes 2D unit normal vectors perpendicular to each point along the curve.
+    For tangent vector t = (dx, dy), normal vector is n = (-dy, dx) normalized to unit length.
+    """
+    r1_arr = np.asarray(r1_pts, dtype=float)
+    r2_arr = np.asarray(r2_pts, dtype=float)
+    n = len(r1_arr)
+    normals = np.zeros((n, 2), dtype=float)
+    if n < 2:
+        return np.array([[0.0, 1.0]] * n)
+
+    # Compute tangents using central differences (and one-sided differences at endpoints)
+    dx = np.zeros(n)
+    dy = np.zeros(n)
+
+    dx[0] = r1_arr[1] - r1_arr[0]
+    dy[0] = r2_arr[1] - r2_arr[0]
+
+    dx[-1] = r1_arr[-1] - r1_arr[-2]
+    dy[-1] = r2_arr[-1] - r2_arr[-2]
+
+    if n > 2:
+        dx[1:-1] = (r1_arr[2:] - r1_arr[:-2]) / 2.0
+        dy[1:-1] = (r2_arr[2:] - r2_arr[:-2]) / 2.0
+
+    lengths = np.hypot(dx, dy)
+    lengths[lengths < 1e-12] = 1.0
+
+    tx = dx / lengths
+    ty = dy / lengths
+
+    # Unit normal rotated 90 degrees CCW: (-ty, tx)
+    normals[:, 0] = -ty
+    normals[:, 1] = tx
+
+    return normals
+
+
 def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -> None:
     """
     Saves extracted loci to a structured CSV file.
-    Includes group_velocity column if present in locus records.
+    Includes group_velocity and residual_gap columns if present in locus records.
     """
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     has_vg = any("group_velocity" in l or "vg" in l for l in loci)
-    headers = ["locus_id", "point_index", "t_normalized", "r1", "r2", "predicted_FOM"]
+    has_gap = any("residual_gap" in l or "gaps" in l for l in loci)
+    has_unrefined = any("r1_unrefined" in l for l in loci)
+
+    headers = ["locus_id", "point_index", "t_normalized", "r1", "r2"]
+    if has_unrefined:
+        headers.extend(["r1_initial", "r2_initial"])
+    headers.append("predicted_FOM")
+    if has_gap:
+        headers.append("residual_gap")
     if has_vg:
         headers.append("group_velocity")
 
@@ -310,12 +357,26 @@ def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -
             l_id = locus["locus_id"]
             r1_vals = locus["r1"]
             r2_vals = locus["r2"]
+            r1_unref = locus.get("r1_unrefined", [])
+            r2_unref = locus.get("r2_unrefined", [])
             fom_vals = locus["fom"]
+            gap_vals = locus.get("residual_gap") or locus.get("gaps") or []
             vg_vals = locus.get("group_velocity") or locus.get("vg") or []
             n = len(r1_vals)
             for idx in range(n):
                 t = float(idx) / max(n - 1, 1)
-                row = [l_id, idx + 1, f"{t:.4f}", f"{r1_vals[idx]:.6f}", f"{r2_vals[idx]:.6f}", f"{fom_vals[idx]:.6e}"]
+                row = [l_id, idx + 1, f"{t:.4f}", f"{r1_vals[idx]:.6f}", f"{r2_vals[idx]:.6f}"]
+                if has_unrefined:
+                    if idx < len(r1_unref) and idx < len(r2_unref):
+                        row.extend([f"{r1_unref[idx]:.6f}", f"{r2_unref[idx]:.6f}"])
+                    else:
+                        row.extend(["nan", "nan"])
+                row.append(f"{fom_vals[idx]:.6e}")
+                if has_gap:
+                    if idx < len(gap_vals) and gap_vals[idx] is not None:
+                        row.append(f"{float(gap_vals[idx]):.6e}")
+                    else:
+                        row.append("nan")
                 if has_vg:
                     if idx < len(vg_vals) and vg_vals[idx] is not None:
                         row.append(f"{float(vg_vals[idx]):.6f}")

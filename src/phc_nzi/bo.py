@@ -127,6 +127,10 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     post.setdefault("spline_degree", 3)
     post.setdefault("sample_points", 50)
     post.setdefault("compute_group_velocity", post.get("calculate_group_velocity", False))
+    post.setdefault("ensure_degeneracy", post.get("refine_degeneracy", False))
+    post.setdefault("degeneracy_tolerance", 1.0e-5)
+    post.setdefault("max_refine_steps", 6)
+    post.setdefault("refine_method", "normal")
     post.setdefault("export_csv", True)
     post.setdefault("plot_overlay", True)
     config["postprocessing"] = post
@@ -1078,8 +1082,8 @@ class BayesianOptimizer:
 
         plt.tight_layout()
         conv_file = self.output_dir / "bo_convergence.png"
-        plt.savefig(conv_file, dpi=200, bbox_inches="tight")
-        plt.close()
+        fig.savefig(conv_file, dpi=200, bbox_inches="tight")
+        plt.close(fig)
         if verbose:
             print(f"Saved convergence plot to '{conv_file}'")
 
@@ -1257,19 +1261,45 @@ class BayesianOptimizer:
                         if post_cfg.get("plot_overlay", True):
                             for locus in loci:
                                 l_id = locus["locus_id"]
+                                r1_unref = locus.get("r1_unrefined")
+                                r2_unref = locus.get("r2_unrefined")
                                 r1_pts = locus["r1"]
                                 r2_pts = locus["r2"]
-                                lbl_text = "Optimal Locus" if len(loci) == 1 else f"Locus #{l_id}"
-                                ax2.plot(
-                                    r1_pts,
-                                    r2_pts,
-                                    color="#00FF66",
-                                    linestyle="--",
-                                    linewidth=2.2,
-                                    alpha=0.95,
-                                    label=lbl_text,
-                                    zorder=7,
-                                )
+                                if r1_unref is not None and r2_unref is not None:
+                                    lbl_gp = "GP Locus" if len(loci) == 1 else f"GP Locus #{l_id}"
+                                    ax2.plot(
+                                        r1_unref,
+                                        r2_unref,
+                                        color="#00FF66",
+                                        linestyle="--",
+                                        linewidth=1.8,
+                                        alpha=0.75,
+                                        label=lbl_gp,
+                                        zorder=7,
+                                    )
+                                    lbl_ref = "Refined Locus" if len(loci) == 1 else f"Refined Locus #{l_id}"
+                                    ax2.plot(
+                                        r1_pts,
+                                        r2_pts,
+                                        color="#00FFFF",
+                                        linestyle="-",
+                                        linewidth=2.2,
+                                        alpha=0.95,
+                                        label=lbl_ref,
+                                        zorder=8,
+                                    )
+                                else:
+                                    lbl_text = "Optimal Locus" if len(loci) == 1 else f"Locus #{l_id}"
+                                    ax2.plot(
+                                        r1_pts,
+                                        r2_pts,
+                                        color="#00FF66",
+                                        linestyle="--",
+                                        linewidth=2.2,
+                                        alpha=0.95,
+                                        label=lbl_text,
+                                        zorder=7,
+                                    )
 
                         json_path = self.output_dir / "bo_loci.json"
                         export_loci_to_json(loci, json_path)
@@ -1308,8 +1338,8 @@ class BayesianOptimizer:
             by_label = dict(zip(labels1 + labels2, handles1 + handles2))
             fig.legend(by_label.values(), by_label.keys(), loc="lower center", bbox_to_anchor=(0.5, -0.06), ncol=3, facecolor="white", edgecolor="black")
 
-            plt.savefig(surrogate_file, dpi=200, bbox_inches="tight")
-            plt.close()
+            fig.savefig(surrogate_file, dpi=200, bbox_inches="tight")
+            plt.close(fig)
             if verbose:
                 print(f"Saved surrogate map plot to '{surrogate_file}'")
 
@@ -1379,6 +1409,222 @@ class BayesianOptimizer:
 
         return 0.0
 
+    def _evaluate_point_gamma_gap(
+        self, p_dict: Dict[str, float], target_bands: Optional[List[int]] = None
+    ) -> Tuple[float, float, List[int], Dict[str, Any]]:
+        """
+        Fast evaluation of the signed frequency gap at Gamma point (k=0).
+        Runs MPB in only_gamma mode (0.05s) and computes:
+          - signed_gap: frequency difference between singlet and doublet mode
+          - normalized_cost: |Delta omega| / omega_0
+          - target_bands: identified band indices
+          - full_map: irrep mapping dict
+        """
+        p_vals = [float(p_dict[k]) for k in self.param_names if k in p_dict]
+        cost, freq_dirac, label, full_map, t_bands, corrections, conn_status, _, _ = self._evaluate_single(
+            (0, p_vals)
+        )
+
+        bands = t_bands or target_bands or [4, 5, 6]
+        signed_gap = float(cost)
+
+        if full_map and bands:
+            singlet_freqs = [full_map[b][2] for b in bands if b in full_map and full_map[b][0] in ("A_1", "A_2", "B_1", "B_2")]
+            doublet_freqs = [full_map[b][2] for b in bands if b in full_map and full_map[b][0] in ("E", "E_1", "E_2")]
+            if singlet_freqs and doublet_freqs:
+                signed_gap = float(np.mean(doublet_freqs) - np.mean(singlet_freqs))
+            else:
+                b_max = max(bands)
+                b_min = min(bands)
+                if b_max in full_map and b_min in full_map:
+                    signed_gap = float(full_map[b_max][2] - full_map[b_min][2])
+
+        return signed_gap, float(cost), bands, full_map
+
+    def _refine_single_point_degeneracy(
+        self,
+        p_dict: Dict[str, float],
+        normal_vec: np.ndarray,
+        tol: float = 1e-5,
+        max_steps: int = 6,
+        target_bands: Optional[List[int]] = None,
+        method: str = "normal",
+    ) -> Tuple[Dict[str, float], float, float]:
+        """
+        Fine-tunes a sampled locus point to exact degeneracy (cost < tol)
+        using 1D normal line search / secant root-finding with Gamma-only evaluations.
+        """
+        best_p = dict(p_dict)
+        best_cost = float("inf")
+        best_gap = float("inf")
+
+        # Determine unit direction for 1D search
+        if method == "r2" and len(self.param_names) >= 2:
+            direction = np.array([0.0, 1.0])
+        elif method == "r1" and len(self.param_names) >= 1:
+            direction = np.array([1.0, 0.0])
+        else:
+            norm_len = float(np.hypot(normal_vec[0], normal_vec[1]))
+            if norm_len > 1e-8:
+                direction = np.array([float(normal_vec[0]) / norm_len, float(normal_vec[1]) / norm_len])
+            else:
+                direction = np.array([0.0, 1.0])
+
+        p1_name = self.param_names[0] if len(self.param_names) >= 1 else "r1"
+        p2_name = self.param_names[1] if len(self.param_names) >= 2 else "r2"
+
+        def get_point_at(delta: float) -> Dict[str, float]:
+            cur = dict(p_dict)
+            cur[p1_name] = float(p_dict[p1_name] + delta * direction[0])
+            if len(self.param_names) >= 2:
+                cur[p2_name] = float(p_dict[p2_name] + delta * direction[1])
+            if len(self.param_bounds) >= 1:
+                cur[p1_name] = float(np.clip(cur[p1_name], self.param_bounds[0][0], self.param_bounds[0][1]))
+            if len(self.param_bounds) >= 2:
+                cur[p2_name] = float(np.clip(cur[p2_name], self.param_bounds[1][0], self.param_bounds[1][1]))
+            return cur
+
+        # Step 0: Initial point delta = 0
+        gap0, cost0, bands, _ = self._evaluate_point_gamma_gap(get_point_at(0.0), target_bands)
+        best_p = get_point_at(0.0)
+        best_cost = cost0
+        best_gap = gap0
+
+        if cost0 < tol:
+            return best_p, gap0, cost0
+
+        # Step 1: Probe step delta_1
+        step_mag = 0.002
+        delta1 = -step_mag if gap0 > 0 else step_mag
+        gap1, cost1, _, _ = self._evaluate_point_gamma_gap(get_point_at(delta1), target_bands)
+
+        if cost1 < best_cost:
+            best_p = get_point_at(delta1)
+            best_cost = cost1
+            best_gap = gap1
+
+        if cost1 < tol:
+            return best_p, gap1, cost1
+
+        # Secant iteration history
+        deltas = [0.0, delta1]
+        gaps = [gap0, gap1]
+        delta_max = 0.025
+
+        for step in range(2, max_steps):
+            d_prev, d_curr = deltas[-2], deltas[-1]
+            g_prev, g_curr = gaps[-2], gaps[-1]
+
+            denom = g_curr - g_prev
+            if abs(denom) < 1e-10:
+                d_next = d_curr + (step_mag * 0.5 if step % 2 == 0 else -step_mag * 0.5)
+            else:
+                d_next = d_curr - g_curr * (d_curr - d_prev) / denom
+
+            d_next = float(np.clip(d_next, -delta_max, delta_max))
+
+            if any(abs(d_next - d) < 1e-6 for d in deltas):
+                d_next = d_curr + (step_mag * 0.25 if g_curr > 0 else -step_mag * 0.25)
+                d_next = float(np.clip(d_next, -delta_max, delta_max))
+
+            pt_next = get_point_at(d_next)
+            g_next, c_next, _, _ = self._evaluate_point_gamma_gap(pt_next, target_bands)
+
+            deltas.append(d_next)
+            gaps.append(g_next)
+
+            if c_next < best_cost:
+                best_p = pt_next
+                best_cost = c_next
+                best_gap = g_next
+
+            if c_next < tol:
+                return best_p, g_next, c_next
+
+        return best_p, best_gap, best_cost
+
+    def _refine_locus_degeneracy(
+        self, loci: List[Dict[str, Any]], verbose: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Executes local degeneracy refinement for all sampled points across each extracted locus
+        in parallel using fast Gamma-only evaluations.
+        """
+        from .locus import compute_curve_normals
+
+        post_cfg = getattr(self, "post_cfg", {}) or {}
+        tol = float(post_cfg.get("degeneracy_tolerance", 1.0e-5))
+        max_steps = int(post_cfg.get("max_refine_steps", 6))
+        method = str(post_cfg.get("refine_method", "normal")).lower()
+
+        worker_cand = (
+            self.sim_cfg.get("parallel_workers")
+            or self.opt_cfg.get("batch_size")
+            or self.sim_cfg.get("cores")
+            or 4
+        )
+        max_workers = min(max(1, int(worker_cand)), 24)
+
+        for locus in loci:
+            l_id = locus["locus_id"]
+            r1_pts = np.asarray(locus["r1"], dtype=float)
+            r2_pts = np.asarray(locus["r2"], dtype=float)
+            n_pts = len(r1_pts)
+
+            # Preserve unrefined GP surrogate coordinates
+            locus["r1_unrefined"] = list(r1_pts)
+            locus["r2_unrefined"] = list(r2_pts)
+
+            normals = compute_curve_normals(r1_pts, r2_pts)
+
+            if verbose:
+                print(f"Refining degeneracy for Locus #{l_id} ({n_pts} points, tol={tol:.1e}, method='{method}', {max_workers} workers)...")
+
+            tasks = []
+            for i in range(n_pts):
+                p_entry = {self.param_names[0]: float(r1_pts[i])}
+                if len(self.param_names) >= 2:
+                    p_entry[self.param_names[1]] = float(r2_pts[i])
+                tasks.append((i, p_entry, normals[i]))
+
+            def refine_worker(item):
+                idx, p_entry, norm_vec = item
+                refined_p, gap_val, cost_val = self._refine_single_point_degeneracy(
+                    p_dict=p_entry,
+                    normal_vec=norm_vec,
+                    tol=tol,
+                    max_steps=max_steps,
+                    method=method,
+                )
+                return idx, refined_p, gap_val, cost_val
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = list(executor.map(refine_worker, tasks))
+
+            r1_ref = [0.0] * n_pts
+            r2_ref = [0.0] * n_pts
+            gaps_ref = [0.0] * n_pts
+            costs_ref = [0.0] * n_pts
+
+            for idx, refined_p, gap_val, cost_val in results:
+                r1_ref[idx] = float(refined_p[self.param_names[0]])
+                if len(self.param_names) >= 2:
+                    r2_ref[idx] = float(refined_p[self.param_names[1]])
+                gaps_ref[idx] = float(gap_val)
+                costs_ref[idx] = float(cost_val)
+
+            locus["r1"] = r1_ref
+            locus["r2"] = r2_ref
+            locus["residual_gap"] = costs_ref
+            locus["gaps"] = gaps_ref
+
+            if verbose:
+                max_gap = max(costs_ref)
+                mean_gap = sum(costs_ref) / len(costs_ref)
+                print(f"  Locus #{l_id} refined: Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}")
+
+        return loci
+
     def _evaluate_locus_simulations(
         self, loci: List[Dict[str, Any]], verbose: bool = True
     ) -> List[Dict[str, Any]]:
@@ -1394,6 +1640,11 @@ class BayesianOptimizer:
               ...
         """
         import shutil
+
+        post_cfg = getattr(self, "post_cfg", {}) or {}
+        ensure_deg = bool(post_cfg.get("ensure_degeneracy", False) or post_cfg.get("refine_degeneracy", False))
+        if ensure_deg:
+            loci = self._refine_locus_degeneracy(loci, verbose=verbose)
 
         target_bands = None
         if hasattr(self, "records") and self.records:
@@ -1421,6 +1672,7 @@ class BayesianOptimizer:
             r1_pts = locus["r1"]
             r2_pts = locus["r2"]
             fom_pts = locus.get("fom", [])
+            gap_pts = locus.get("residual_gap", [])
             n_pts = len(r1_pts)
 
             if verbose:
@@ -1440,10 +1692,11 @@ class BayesianOptimizer:
 
                 t_norm = float(i) / max(n_pts - 1, 1)
                 fom_val = float(fom_pts[i]) if i < len(fom_pts) else 0.0
-                point_tasks.append((pt_idx, t_norm, p_entry, fom_val, pt_dir))
+                gap_val = float(gap_pts[i]) if i < len(gap_pts) else 0.0
+                point_tasks.append((pt_idx, t_norm, p_entry, fom_val, gap_val, pt_dir))
 
             def run_single_point(task_args):
-                pt_idx, t_norm, p_dict, fom_val, pt_dir = task_args
+                pt_idx, t_norm, p_dict, fom_val, gap_val, pt_dir = task_args
                 combined = {**self.fixed_params, **p_dict}
                 combined["display_symmetry?"] = "true"
                 combined["display_group_velocity?"] = "true"
@@ -1517,8 +1770,16 @@ class BayesianOptimizer:
                     "params": p_dict,
                     "group_velocity": vg_val,
                     "predicted_fom": fom_val,
+                    "residual_gap": gap_val,
                     "target_bands": target_bands,
                 }
+                if "r1_unrefined" in locus and (pt_idx - 1) < len(locus["r1_unrefined"]):
+                    pt_info["unrefined_params"] = {
+                        self.param_names[0]: locus["r1_unrefined"][pt_idx - 1],
+                    }
+                    if len(self.param_names) >= 2:
+                        pt_info["unrefined_params"][self.param_names[1]] = locus["r2_unrefined"][pt_idx - 1]
+
                 with open(pt_dir / "point_info.json", "w") as f:
                     json.dump(pt_info, f, indent=2)
 

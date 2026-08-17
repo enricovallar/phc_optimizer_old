@@ -220,9 +220,13 @@ postprocessing:
   smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
   spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
   sample_points: 20                # Number of evaluation points sampled along the locus curve
-  compute_group_velocity: true     # Calculate group velocity at each sampled locus point in parallel
+  ensure_degeneracy: true          # Fine-tune sampled locus points to exact degeneracy (residual gap < tolerance)
+  degeneracy_tolerance: 1.0e-5     # Target residual gap tolerance floor (|Δω/ω0| < 1e-5)
+  max_refine_steps: 6              # Maximum Γ-only root-finding evaluations per point (typically 2-3)
+  refine_method: "normal"          # "normal" (orthogonal to curve) or "r2" / "r1"
+  compute_group_velocity: true     # Calculate group velocity at each refined locus point in parallel
   export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
-  plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png
+  plot_overlay: true               # Overlay both GP surrogate and refined loci on bo_surrogate_map.png
 ```
 
 ### Python API Usage
