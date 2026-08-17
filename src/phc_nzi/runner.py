@@ -87,7 +87,7 @@ def run_hpc(
 
     # Include init.ctl helper if present
     init_ctl = package_ctl / "init.ctl"
-    init_arg = f"{init_ctl} " if init_ctl.is_file() else ""
+    init_arg = f'"{init_ctl}" ' if init_ctl.is_file() else ""
 
     # Command string: ensure GUILE_LOAD_PATH includes package ctl directory, working directory, and cwd
     guile_paths = [
@@ -101,7 +101,7 @@ def run_hpc(
     cmd = (
         f"export GUILE_LOAD_PATH=\"{guile_load_path_str}\" && "
         f"source /dtu/sw/dcc/dcc-sw.bash && module load {version} && "
-        f"{mpb_cmd} {params} {init_arg}{script_file}"
+        f"{mpb_cmd} {params} {init_arg}\"{script_file}\""
     )
 
     result = subprocess.run(
