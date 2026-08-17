@@ -2,81 +2,107 @@
 # Photonic Crystal NZI Bayesian Optimization Configuration
 # ==============================================================================
 
+# Simulation environment and HPC execution settings
 simulation:
-  ctl_script: "main.ctl"          # Use main.ctl in work directory
-  work_dir: "work"
-  output_dir: "bo_output"         # Dedicated output folder inside work/bo_output/
-  cores: 1
-  only_gamma: true                 # Evaluate ONLY Gamma point during BO for 10x-50x speedup!
-  debug_timing: true               # Enable detailed timing breakdown logs & summary reports
+  ctl_script: "main.ctl"          # MPB control script file in work directory
+  work_dir: "work"                # Root directory for MPB run
+  output_dir: "bo_output"         # Output directory for optimization results
+  cores: 1                        # Cores per MPB simulation
+  parallel_workers: 8             # Number of concurrent parallel simulation workers
+  only_gamma: true                # Fast Gamma-only mode during BO iterations
+  debug_timing: true              # Detailed timing breakdown logs & reports
 
-# Optimization parameters (continuous search bounds for r1, r2)
-# Note: h is not included in variable search bounds
+# Optimization parameters (continuous search bounds: [min, max] in lattice units a)
 parameters:
-  r1: [0.18, 0.4]
-  r2: [0.18, 0.4]
+  r1: [0.18, 0.4]                 # Primary cylinder radius r1
+  r2: [0.18, 0.4]                 # Secondary cylinder radius r2
 
-# Fixed geometry & simulation parameters
+# Fixed geometry and simulation parameters passed to MPB
 fixed_parameters:
-  resolution: 96
-  num-bands: 8
+  resolution: 96                 # Grid resolution per unit cell length a
+  num-bands: 8                   # Total bands calculated
 
-# Target band symmetry configuration
+# Target physical dispersion & symmetry specifications
 target:
-  symmetry_group: "C4v"            # C4v symmetry for square lattice in main.ctl
-  polarization: "te"
-  target_irreps: ["A_2", "E", "E"]
-  irrep_occurrences: [2, 1, 1]
-  min_band: 2                      # Minimum band index to check (excludes Band 1 - fundamental acoustic mode)
-  degeneracy_tol: 0.00005           # Degeneracy tolerance (5e-3 aligned with hBN notebook)
-  target_cost: 0.0025              # Target cost floor (2.5e-3 aligned with hBN notebook)
-  bypass_irrep_identification: false                                          
-  mode_indices: [4,5,6]          # Exact band indices to target  
-  check_slab_connectivity: true   # Or enforce_connectivity: true         
-  epsilon_threshold: 1.1
-  min_neck_width_px: 4             # Reject connections narrower than 4 grid  pixels wide
-  compute_group_velocity: true   # Enables 2nd run for group velocity calculation 
-  delta_k: 0.001                  # Offset from Gamma point (k = (delta_k, 0, 0))
-  vg_optimal_only: true                 # Only compute group velocity for optimal design (skips intermediate BO points)
+  symmetry:
+    group: "C4v"                  # Point group symmetry: "C4v" (square) or "C6v" (triangular)
+    polarization: "te"             # Polarization parity: "te" (Hz-odd/Ez-even) or "tm" (Ez-odd/Hz-even)
+    target_irreps: ["A_2", "E", "E"] # Target irrep multiplet forming Dirac cone
+    irrep_occurrences: [2, 1, 1]  # Target occurrence order of irreps
+    min_band: 2                   # Lowest band index to inspect
+    degeneracy_tol: 0.00005       # Degeneracy tolerance for mode mixing failsafe
+    target_cost: 0.0025           # Active learning target cost floor
+    bypass_irrep_identification: false # Set true to target mode_indices directly
+    mode_indices: [4, 5, 6]       # Explicit band indices (when bypassing irrep detection)
 
-# Bayesian Optimizer settings
+  connectivity:
+    enabled: true                 # Invalidate disconnected matrix slab geometries
+    epsilon_threshold: 1.1        # Permittivity threshold for matrix material
+    min_neck_width_px: 4          # Reject connections narrower than 4 grid pixels wide
+
+  group_velocity:
+    enabled: true                 # Compute group velocity during BO iterations
+    delta_k: 0.001                # Offset from Gamma for group velocity calculation
+    optimal_only: true            # Only compute vg for purple/low-cost optimal points
+
+# Bayesian Optimizer & Surrogate Model Settings
 optimizer:
-  max_iterations: 0              # Total optimization generations
-  batch_size: 24                  # Evaluations per batch
-  initial_points: 168              # Total initial points (Power of 2 aligned for Sobol, e.g. 8 points = 4 batches of 2)
-  initial_sampling: "sobol"        # Initial sampling method: "sobol" or "lhs" (Latin Hypercube)
+  iterations:
+    max_iterations: 0             # Total optimization generations (0 = initial batch only)
+    batch_size: 24                # Evaluations per batch
+    initial_points: 168           # Total initial exploration points
+    initial_sampling: "sobol"     # Sampling method: "sobol" or "lhs"
 
-  objective_mode: "log"            # Cost mode: "log" (log10 cost)
-  strategy: "cl_min"               # Constant liar strategy ("cl_min")
-  save_surrogate_freq: 1           # Update bo_surrogate_map.png every N generations (0 = only at end)
-  random_state: 42
-  grid_evaluation: false         # Set to true (or bypass_optimization: true) to bypass BO
-  grid_resolution: [16, 16]        # Grid points per parameter dimension (e.g.  8x8 = 64 points)
+  surrogate:
+    model: "GP"                   # Surrogate model: "GP", "RF", "ET", "GBRT"
+    objective_mode: "log"         # Cost scale: "log" (log10 cost) or "linear"
+    strategy: "cl_min"            # Constant liar strategy for batch parallelization
+    random_state: 42              # Random seed for reproducibility
 
-  n_jobs: -1                       # Number of parallel jobs for BO (1 = serial, >1 = parallel, -1 = all cores)
-  acq_optimizer: "sampling"     
-  n_points: 500                   # Number of points to sample for acquisition function optimization (default: 1000)
-  n_restarts_optimizer: 1          # Number of restarts for acquisition function optimization (default: 10)
+  acquisition:
+    acq_func: "LCB"               # Acquisition function ("LCB", "EI", "PI", "gp_hedge")
+    acq_func_kwargs:
+      kappa: 7.0                  # Exploration parameter kappa for LCB
+    optimizer: "sampling"         # Acquisition optimizer ("sampling" or "lbfgs")
+    n_points: 500                 # Sampling candidates for acquisition maximization
+    n_restarts: 1                 # Restarts for acquisition optimizer
 
-  model: "GP"                      # Base estimator surrogate model: "GP" (default)
-  acq_func: "LCB"                  # Lower Confidence Bound acquisition function
-  acq_func_kwargs: {kappa: 7.0}    # Kappa parameter for LCB 
-  neglect_sigma: false              # Set to true to neglect posterior uncertainty sigma in surrogate FOM map (plots 10^-mu)
-  surrogate_colorbar_limits: [1, 1e3]
+  grid:
+    enabled: false                # Bypass BO and evaluate uniform parameter grid
+    resolution: [16, 16]          # Grid points per parameter dimension
 
-# Postprocessing: Degeneracy Loci & Manifold Extraction
+  visualization:
+    save_surrogate_freq: 1        # Update bo_surrogate_map.png every N generations
+    neglect_sigma: false          # Neglect posterior uncertainty sigma in surrogate map
+    colorbar_limits: [1, 1e3]     # FOM colorbar scale limits
+
+# Postprocessing: Degeneracy Loci Extraction & Analysis Pipeline
 postprocessing:
-  enabled: true                    # Set to true to extract continuous optimal 1D loci
-  threshold_percentile: 70.0       # Percentile cutoff to isolate the continuous high-FOM ridge (e.g. top 30%)
-  min_locus_area_px: 25            # Minimum connected pixel area to qualify as a valid locus
-  max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
-  smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
-  spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
-  sample_points: 20                # Number of evaluation points sampled along the locus curve
-  ensure_degeneracy: true          # Fine-tune sampled locus points to exact degeneracy (residual gap < tolerance)
-  degeneracy_tolerance: 1.0e-5     # Target residual gap tolerance floor (|Δω/ω0| < 1e-5)
-  max_refine_steps: 6              # Maximum Γ-only root-finding evaluations per point (typically 2-3)
-  refine_method: "normal"          # "normal" (orthogonal to curve) or "r2" / "r1"
-  compute_group_velocity: true     # Calculate group velocity at each refined locus point in parallel
-  export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
-  plot_overlay: true               # Overlay both GP surrogate and refined loci on bo_surrogate_map.png
+  enabled: true                   # Enable postprocessing pipeline
+
+  # 1. Manifold Extraction & Skeletonization
+  locus:
+    threshold_percentile: 70.0    # Percentile cutoff to isolate high-FOM ridge (e.g. top 30%)
+    min_locus_area_px: 25         # Minimum connected component size in pixels
+    max_loci: 1                   # Maximum number of disjoint loci to extract
+    smoothness: 0.001             # B-spline smoothing regularization factor
+    spline_degree: 3              # Degree of B-spline (k=3 for cubic spline)
+    sample_points: 20             # Number of evaluation points sampled along the curve
+
+  # 2. Degeneracy Fine-Tuning (Gamma-only normal line search)
+  refinement:
+    enabled: true                 # Fine-tune sampled points to exact Gamma degeneracy
+    tolerance: 1.0e-5             # Target residual gap floor (|Δω/ω0| < 1e-5)
+    max_steps: 6                  # Max Gamma-only line search evaluations per point
+    method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
+
+  # 3. Group Velocity Evaluation along Loci
+  group_velocity:
+    enabled: true                 # Compute target-band group velocities along the locus in parallel
+    delta_k: 0.001                # Offset from Gamma for vg calculation
+
+  # 4. Output & Visualization
+  output:
+    export_csv: true              # Export bo_locus.csv inside each locus folder
+    plot_overlay: true            # Overlay GP surrogate and refined loci on bo_surrogate_map.png
+    plot_profiles: true           # Generate 3-panel bo_locus_profile.png

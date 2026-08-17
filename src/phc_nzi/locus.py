@@ -190,12 +190,14 @@ def extract_optimal_loci(
     if config is None:
         config = {}
 
-    thresh_pct = float(config.get("threshold_percentile", 90.0))
-    min_area = int(config.get("min_locus_area_px", 25))
-    max_loci = int(config.get("max_loci", config.get("number_of_loci", 1)))
-    smoothness = float(config.get("smoothness", 0.001))
-    spline_degree = int(config.get("spline_degree", 3))
-    n_sample = int(config.get("sample_points", 50))
+    locus_cfg = config.get("locus", {}) if isinstance(config.get("locus"), dict) else config
+
+    thresh_pct = float(locus_cfg.get("threshold_percentile", config.get("threshold_percentile", 90.0)))
+    min_area = int(locus_cfg.get("min_locus_area_px", config.get("min_locus_area_px", 25)))
+    max_loci = int(locus_cfg.get("max_loci", config.get("max_loci", config.get("number_of_loci", 1))))
+    smoothness = float(locus_cfg.get("smoothness", config.get("smoothness", 0.001)))
+    spline_degree = int(locus_cfg.get("spline_degree", config.get("spline_degree", 3)))
+    n_sample = int(locus_cfg.get("sample_points", config.get("sample_points", 50)))
 
     finite_fom = fom_2d[np.isfinite(fom_2d)]
     if finite_fom.size == 0:

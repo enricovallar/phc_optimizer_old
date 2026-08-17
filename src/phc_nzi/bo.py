@@ -65,74 +65,129 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     if not isinstance(config, dict):
         raise ValueError(f"Invalid configuration file contents in '{config_path}'. Expected a dictionary.")
 
-    # Apply standard defaults
-    sim = config.get("simulation", {})
-    sim.setdefault("ctl_script", "example.ctl")
-    sim.setdefault("work_dir", "work")
-    sim.setdefault("output_dir", "bo_output")
-    sim.setdefault("cores", 4)
-    sim.setdefault("only_gamma", True)
-    sim.setdefault("local_workers", (config.get("optimizer") or config.get("optimization", {})).get("batch_size", 4))
+    # 1. Simulation configuration
+    sim_raw = config.get("simulation", {})
+    sim = {
+        "ctl_script": str(sim_raw.get("ctl_script", "main.ctl")),
+        "work_dir": str(sim_raw.get("work_dir", "work")),
+        "output_dir": str(sim_raw.get("output_dir", "bo_output")),
+        "cores": int(sim_raw.get("cores", 4)),
+        "parallel_workers": int(sim_raw.get("parallel_workers", sim_raw.get("local_workers", 4))),
+        "only_gamma": bool(sim_raw.get("only_gamma", True)),
+        "debug_timing": bool(sim_raw.get("debug_timing", True)),
+    }
     config["simulation"] = sim
 
-
+    # 2. Parameters & Fixed Parameters
     params = config.get("parameters", {})
     if not params:
         raise ValueError("No optimization parameters defined under 'parameters' in config file.")
     config["parameters"] = params
-
     config.setdefault("fixed_parameters", {})
 
-    target = config.get("target", {})
-    target.setdefault("symmetry_group", "C4v")
-    target.setdefault("polarization", "te")
-    target.setdefault("target_irreps", ["A_2", "E", "E"])
-    target.setdefault("irrep_occurrences", [1, 1, 1])
-    target.setdefault("min_band", 2)
-    target.setdefault("degeneracy_tol", 0.005)
-    target.setdefault("target_cost", 0.0025)
-    target.setdefault("check_slab_connectivity", False)
-    target.setdefault("enforce_connectivity", False)
-    target.setdefault("epsilon_threshold", 1.1)
-    target.setdefault("compute_group_velocity", False)
-    target.setdefault("calculate_group_velocity", False)
-    target.setdefault("delta_k", 0.01)
+    # 3. Target physics & symmetry specifications
+    target_raw = config.get("target", {})
+    sym = target_raw.get("symmetry", {})
+    conn = target_raw.get("connectivity", {})
+    vg = target_raw.get("group_velocity", {})
+
+    target = {
+        "symmetry_group": str(sym.get("group", target_raw.get("symmetry_group", "C4v"))),
+        "polarization": str(sym.get("polarization", target_raw.get("polarization", "te"))),
+        "target_irreps": list(sym.get("target_irreps", target_raw.get("target_irreps", ["A_2", "E", "E"]))),
+        "irrep_occurrences": list(sym.get("irrep_occurrences", target_raw.get("irrep_occurrences", [1, 1, 1]))),
+        "min_band": int(sym.get("min_band", target_raw.get("min_band", 2))),
+        "degeneracy_tol": float(sym.get("degeneracy_tol", target_raw.get("degeneracy_tol", 0.005))),
+        "target_cost": float(sym.get("target_cost", target_raw.get("target_cost", 0.0025))),
+        "bypass_irrep_identification": bool(sym.get("bypass_irrep_identification", target_raw.get("bypass_irrep_identification", False))),
+        "mode_indices": sym.get("mode_indices", target_raw.get("mode_indices")),
+
+        "check_slab_connectivity": bool(conn.get("enabled", target_raw.get("check_slab_connectivity", False))),
+        "enforce_connectivity": bool(conn.get("enabled", target_raw.get("enforce_connectivity", False))),
+        "epsilon_threshold": float(conn.get("epsilon_threshold", target_raw.get("epsilon_threshold", 1.1))),
+        "min_neck_width_px": int(conn.get("min_neck_width_px", target_raw.get("min_neck_width_px", 4))),
+
+        "compute_group_velocity": bool(vg.get("enabled", target_raw.get("compute_group_velocity", False))),
+        "delta_k": float(vg.get("delta_k", target_raw.get("delta_k", 0.01))),
+        "vg_optimal_only": bool(vg.get("optimal_only", target_raw.get("vg_optimal_only", True))),
+    }
+    target["symmetry"] = sym
+    target["connectivity"] = conn
+    target["group_velocity"] = vg
     config["target"] = target
 
-    opt = config.get("optimizer") or config.get("optimization", {})
-    opt.setdefault("max_iterations", 20)
-    n_pts = opt.get("initial_points", opt.get("n_initial_points", opt.get("initial_steps", 8)))
-    opt["initial_points"] = n_pts
-    opt.setdefault("initial_sampling", opt.get("initial_point_generator", "sobol"))
-    opt.setdefault("model", opt.get("base_estimator", "GP"))
-    opt.setdefault("acq_func", "LCB")
-    opt.setdefault("acq_func_kwargs", {"kappa": 3.5})
-    opt.setdefault("grid_evaluation", False)
-    opt.setdefault("bypass_optimization", False)
-    opt.setdefault("grid_resolution", None)
-    opt.setdefault("objective_mode", "log")
-    opt.setdefault("strategy", "cl_min")
-    opt.setdefault("save_surrogate_freq", 0)  # Default 0: save only at the end
-    opt.setdefault("random_state", 42)
-    opt.setdefault("neglect_sigma", False)
+    # 4. Bayesian Optimizer Settings
+    opt_raw = config.get("optimizer") or config.get("optimization", {})
+    opt_iter = opt_raw.get("iterations", {})
+    opt_surr = opt_raw.get("surrogate", {})
+    opt_acq = opt_raw.get("acquisition", {})
+    opt_grid = opt_raw.get("grid", {})
+    opt_vis = opt_raw.get("visualization", {})
+
+    opt = {
+        "max_iterations": int(opt_iter.get("max_iterations", opt_raw.get("max_iterations", 20))),
+        "batch_size": int(opt_iter.get("batch_size", opt_raw.get("batch_size", 4))),
+        "initial_points": int(opt_iter.get("initial_points", opt_raw.get("initial_points", 8))),
+        "initial_sampling": str(opt_iter.get("initial_sampling", opt_raw.get("initial_sampling", "sobol"))),
+
+        "model": str(opt_surr.get("model", opt_raw.get("model", "GP"))),
+        "objective_mode": str(opt_surr.get("objective_mode", opt_raw.get("objective_mode", "log"))),
+        "strategy": str(opt_surr.get("strategy", opt_raw.get("strategy", "cl_min"))),
+        "random_state": int(opt_surr.get("random_state", opt_raw.get("random_state", 42))),
+
+        "acq_func": str(opt_acq.get("acq_func", opt_raw.get("acq_func", "LCB"))),
+        "acq_func_kwargs": opt_acq.get("acq_func_kwargs", opt_raw.get("acq_func_kwargs", {"kappa": 3.5})),
+        "acq_optimizer": str(opt_acq.get("optimizer", opt_raw.get("acq_optimizer", "sampling"))),
+        "n_points": int(opt_acq.get("n_points", opt_raw.get("n_points", 1000))),
+        "n_restarts_optimizer": int(opt_acq.get("n_restarts", opt_raw.get("n_restarts_optimizer", 1))),
+
+        "grid_evaluation": bool(opt_grid.get("enabled", opt_raw.get("grid_evaluation", False))),
+        "grid_resolution": opt_grid.get("resolution", opt_raw.get("grid_resolution")),
+
+        "save_surrogate_freq": int(opt_vis.get("save_surrogate_freq", opt_raw.get("save_surrogate_freq", 0))),
+        "neglect_sigma": bool(opt_vis.get("neglect_sigma", opt_raw.get("neglect_sigma", False))),
+        "surrogate_colorbar_limits": opt_vis.get("colorbar_limits", opt_raw.get("surrogate_colorbar_limits")),
+    }
+    opt["iterations"] = opt_iter
+    opt["surrogate"] = opt_surr
+    opt["acquisition"] = opt_acq
+    opt["grid"] = opt_grid
+    opt["visualization"] = opt_vis
     config["optimizer"] = opt
 
-    post = config.get("postprocessing", {})
-    post.setdefault("enabled", False)
-    post.setdefault("method", "skeleton_spline")
-    post.setdefault("threshold_percentile", 90.0)
-    post.setdefault("min_locus_area_px", 25)
-    post.setdefault("max_loci", post.get("number_of_loci", 1))
-    post.setdefault("smoothness", 0.001)
-    post.setdefault("spline_degree", 3)
-    post.setdefault("sample_points", 50)
-    post.setdefault("compute_group_velocity", post.get("calculate_group_velocity", False))
-    post.setdefault("ensure_degeneracy", post.get("refine_degeneracy", False))
-    post.setdefault("degeneracy_tolerance", 1.0e-5)
-    post.setdefault("max_refine_steps", 6)
-    post.setdefault("refine_method", "normal")
-    post.setdefault("export_csv", True)
-    post.setdefault("plot_overlay", True)
+    # 5. Postprocessing Pipeline
+    post_raw = config.get("postprocessing", {})
+    post_loc = post_raw.get("locus", {})
+    post_ref = post_raw.get("refinement", {})
+    post_vg = post_raw.get("group_velocity", {})
+    post_out = post_raw.get("output", {})
+
+    post = {
+        "enabled": bool(post_raw.get("enabled", False)),
+        "method": str(post_loc.get("method", post_raw.get("method", "skeleton_spline"))),
+        "threshold_percentile": float(post_loc.get("threshold_percentile", post_raw.get("threshold_percentile", 90.0))),
+        "min_locus_area_px": int(post_loc.get("min_locus_area_px", post_raw.get("min_locus_area_px", 25))),
+        "max_loci": int(post_loc.get("max_loci", post_raw.get("max_loci", 1))),
+        "smoothness": float(post_loc.get("smoothness", post_raw.get("smoothness", 0.001))),
+        "spline_degree": int(post_loc.get("spline_degree", post_raw.get("spline_degree", 3))),
+        "sample_points": int(post_loc.get("sample_points", post_raw.get("sample_points", 50))),
+
+        "ensure_degeneracy": bool(post_ref.get("enabled", post_raw.get("ensure_degeneracy", False))),
+        "degeneracy_tolerance": float(post_ref.get("tolerance", post_raw.get("degeneracy_tolerance", 1.0e-5))),
+        "max_refine_steps": int(post_ref.get("max_steps", post_raw.get("max_refine_steps", 6))),
+        "refine_method": str(post_ref.get("method", post_raw.get("refine_method", "normal"))),
+
+        "compute_group_velocity": bool(post_vg.get("enabled", post_raw.get("compute_group_velocity", False))),
+        "delta_k": float(post_vg.get("delta_k", target["delta_k"])),
+
+        "export_csv": bool(post_out.get("export_csv", post_raw.get("export_csv", True))),
+        "plot_overlay": bool(post_out.get("plot_overlay", post_raw.get("plot_overlay", True))),
+        "plot_profiles": bool(post_out.get("plot_profiles", post_raw.get("plot_profiles", True))),
+    }
+    post["locus"] = post_loc
+    post["refinement"] = post_ref
+    post["group_velocity"] = post_vg
+    post["output"] = post_out
     config["postprocessing"] = post
 
     return config
