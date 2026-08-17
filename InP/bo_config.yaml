@@ -72,6 +72,7 @@ postprocessing:
   max_loci: 1                      # Maximum number of disjoint connected loci to extract and track
   smoothness: 0.001                # Spline smoothing regularization (s in scipy.interpolate.splprep)
   spline_degree: 3                 # Degree of B-spline (k=3 for cubic spline)
-  sample_points: 50                # Number of evaluation points sampled along the locus curve
+  sample_points: 20                # Number of evaluation points sampled along the locus curve
+  compute_group_velocity: true     # Calculate group velocity at each sampled locus point in parallel
   export_csv: true                 # Export extracted curve coordinates to bo_locus.csv
   plot_overlay: true               # Overlay the extracted optimal curve on bo_surrogate_map.png

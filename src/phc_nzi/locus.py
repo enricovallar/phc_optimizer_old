@@ -293,22 +293,35 @@ def extract_optimal_loci(
 def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -> None:
     """
     Saves extracted loci to a structured CSV file.
+    Includes group_velocity column if present in locus records.
     """
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    has_vg = any("group_velocity" in l or "vg" in l for l in loci)
+    headers = ["locus_id", "point_index", "t_normalized", "r1", "r2", "predicted_FOM"]
+    if has_vg:
+        headers.append("group_velocity")
+
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["locus_id", "point_index", "t_normalized", "r1", "r2", "predicted_FOM"])
+        writer.writerow(headers)
         for locus in loci:
             l_id = locus["locus_id"]
             r1_vals = locus["r1"]
             r2_vals = locus["r2"]
             fom_vals = locus["fom"]
+            vg_vals = locus.get("group_velocity") or locus.get("vg") or []
             n = len(r1_vals)
             for idx in range(n):
                 t = float(idx) / max(n - 1, 1)
-                writer.writerow([l_id, idx + 1, f"{t:.4f}", f"{r1_vals[idx]:.6f}", f"{r2_vals[idx]:.6f}", f"{fom_vals[idx]:.6e}"])
+                row = [l_id, idx + 1, f"{t:.4f}", f"{r1_vals[idx]:.6f}", f"{r2_vals[idx]:.6f}", f"{fom_vals[idx]:.6e}"]
+                if has_vg:
+                    if idx < len(vg_vals) and vg_vals[idx] is not None:
+                        row.append(f"{float(vg_vals[idx]):.6f}")
+                    else:
+                        row.append("nan")
+                writer.writerow(row)
 
 
 def export_loci_to_json(loci: List[Dict[str, Any]], json_path: Union[str, Path]) -> None:
@@ -319,3 +332,65 @@ def export_loci_to_json(loci: List[Dict[str, Any]], json_path: Union[str, Path])
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump({"num_loci": len(loci), "loci": loci}, f, indent=2)
+
+
+def plot_locus_profiles(
+    loci: List[Dict[str, Any]],
+    output_path: Union[str, Path] = "bo_locus_profile.png",
+    title: str = "Optimal Locus Analysis",
+) -> None:
+    """
+    Plots the Group Velocity and FOM profiles along the extracted optimal locus trajectory.
+    """
+    import matplotlib.pyplot as plt
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    has_vg = any("group_velocity" in l or "vg" in l for l in loci)
+    n_rows = 2 if has_vg else 1
+    fig, axes = plt.subplots(n_rows, 1, figsize=(8.5, 3.8 * n_rows), sharex=True)
+    if n_rows == 1:
+        axes = [axes]
+
+    colors = ["#00B050", "#0070C0", "#E30613", "#7030A0"]
+
+    for idx, locus in enumerate(loci):
+        c = colors[idx % len(colors)]
+        l_id = locus["locus_id"]
+        r1_vals = np.array(locus["r1"])
+        fom_vals = np.array(locus["fom"])
+        t_vals = np.linspace(0, 1, len(r1_vals))
+        vg_vals = np.array(locus.get("group_velocity") or locus.get("vg") or [])
+
+        lbl = f"Locus #{l_id}" if len(loci) > 1 else "Optimal Locus"
+
+        # Row 0: Group Velocity (if available) or FOM
+        if has_vg and len(vg_vals) == len(t_vals):
+            ax_vg = axes[0]
+            ax_vg.plot(t_vals, vg_vals, "-o", color=c, linewidth=2.0, markersize=4.5, label=lbl)
+            ax_vg.set_ylabel(r"Group Velocity $v_g / c$", fontsize=11, fontweight="bold")
+            ax_vg.set_title(f"{title}: Group Velocity & FOM Profiles", fontsize=12, fontweight="bold")
+            ax_vg.grid(True, linestyle=":", alpha=0.6)
+            ax_vg.legend(loc="upper right", frameon=True)
+
+            ax_fom = axes[1]
+            ax_fom.plot(t_vals, fom_vals, "-s", color=c, linewidth=1.8, markersize=4.0, label=lbl)
+            ax_fom.set_yscale("log")
+            ax_fom.set_ylabel(r"$\mathrm{FOM} = \mathbb{E}[C]^{-1}$", fontsize=11, fontweight="bold")
+            ax_fom.set_xlabel(r"Normalized Locus Trajectory $t \in [0, 1]$", fontsize=11, fontweight="bold")
+            ax_fom.grid(True, linestyle=":", alpha=0.6)
+        else:
+            ax_fom = axes[0]
+            ax_fom.plot(t_vals, fom_vals, "-s", color=c, linewidth=1.8, markersize=4.0, label=lbl)
+            ax_fom.set_yscale("log")
+            ax_fom.set_ylabel(r"$\mathrm{FOM} = \mathbb{E}[C]^{-1}$", fontsize=11, fontweight="bold")
+            ax_fom.set_xlabel(r"Normalized Locus Trajectory $t \in [0, 1]$", fontsize=11, fontweight="bold")
+            ax_fom.set_title(f"{title}: Figure of Merit Profile", fontsize=12, fontweight="bold")
+            ax_fom.grid(True, linestyle=":", alpha=0.6)
+            ax_fom.legend(loc="upper right", frameon=True)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved locus profile plot to '{path}'")

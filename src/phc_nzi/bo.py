@@ -126,6 +126,7 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     post.setdefault("smoothness", 0.001)
     post.setdefault("spline_degree", 3)
     post.setdefault("sample_points", 50)
+    post.setdefault("compute_group_velocity", post.get("calculate_group_velocity", False))
     post.setdefault("export_csv", True)
     post.setdefault("plot_overlay", True)
     config["postprocessing"] = post
@@ -1245,9 +1246,18 @@ class BayesianOptimizer:
             post_cfg = getattr(self, "post_cfg", {}) or {}
             if post_cfg.get("enabled", False):
                 try:
-                    from .locus import extract_optimal_loci, export_loci_to_csv, export_loci_to_json
+                    from .locus import extract_optimal_loci, export_loci_to_csv, export_loci_to_json, plot_locus_profiles
                     loci = extract_optimal_loci(x1, x2, predicted_e_c_inv, post_cfg)
                     if loci:
+                        # Optionally compute group velocities along the sampled locus points
+                        compute_locus_vg = bool(
+                            post_cfg.get("compute_group_velocity", False)
+                            or post_cfg.get("calculate_group_velocity", False)
+                            or self.target_cfg.get("compute_group_velocity", False)
+                        )
+                        if compute_locus_vg:
+                            loci = self._evaluate_locus_group_velocities(loci, verbose=verbose)
+
                         if post_cfg.get("plot_overlay", True):
                             for locus in loci:
                                 l_id = locus["locus_id"]
@@ -1273,6 +1283,13 @@ class BayesianOptimizer:
 
                         json_path = self.output_dir / "bo_loci.json"
                         export_loci_to_json(loci, json_path)
+
+                        # Generate 1D Locus Profile figure (Group Velocity & FOM)
+                        plot_locus_profiles(
+                            loci,
+                            output_path=self.output_dir / "bo_locus_profile.png",
+                            title=f"Optimal Locus ({target_str})"
+                        )
                 except Exception as e:
                     if verbose:
                         print(f"Note: Postprocessing locus extraction notice: {e}")
@@ -1378,6 +1395,55 @@ class BayesianOptimizer:
                     return float(max(target_vgs))
 
         return 0.0
+
+    def _evaluate_locus_group_velocities(
+        self, loci: List[Dict[str, Any]], verbose: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Evaluates group velocities for all sampled points along each extracted locus in parallel.
+        """
+        target_bands = None
+        if hasattr(self, "records") and self.records:
+            best_rec = min(self.records, key=lambda r: r.get("raw_cost", float("inf")))
+        if not target_bands:
+            target_bands = self.target_cfg.get("mode_indices") or self.target_cfg.get("target_bands") or [4, 5, 6]
+
+        worker_cand = (
+            self.sim_cfg.get("parallel_workers")
+            or self.opt_cfg.get("batch_size")
+            or self.sim_cfg.get("cores")
+            or 4
+        )
+        max_workers = min(max(1, int(worker_cand)), 24)
+
+        for locus in loci:
+            r1_pts = locus["r1"]
+            r2_pts = locus["r2"]
+            n_pts = len(r1_pts)
+            if verbose:
+                print(f"Evaluating group velocities along Locus #{locus['locus_id']} ({n_pts} points, {max_workers} concurrent workers)...")
+
+            point_dicts = []
+            for i in range(n_pts):
+                p_entry = {}
+                if len(self.param_names) >= 1:
+                    p_entry[self.param_names[0]] = float(r1_pts[i])
+                if len(self.param_names) >= 2:
+                    p_entry[self.param_names[1]] = float(r2_pts[i])
+                point_dicts.append(p_entry)
+
+            def eval_one(p_dict):
+                return self._evaluate_group_velocity_at_point(p_dict, target_bands)
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                vgs = list(executor.map(eval_one, point_dicts))
+
+            locus["group_velocity"] = [float(v) for v in vgs]
+            locus["vg"] = locus["group_velocity"]
+            if verbose and vgs:
+                print(f"  Locus #{locus['locus_id']} Vg range: [{min(vgs):.4f}, {max(vgs):.4f}] c")
+
+        return loci
 
     def _plot_group_velocity_map(self, verbose: bool = True) -> None:
         """
