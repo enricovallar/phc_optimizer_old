@@ -14,8 +14,8 @@ simulation:
 
 # Optimization parameters (continuous search bounds: [min, max] in lattice units a)
 parameters:
-  r1: [0.18, 0.4]                 # Primary cylinder radius r1
-  r2: [0.18, 0.4]                 # Secondary cylinder radius r2
+  r1: [0.2, 0.4]                 # Primary cylinder radius r1
+  r2: [0.2, 0.4]                 # Secondary cylinder radius r2
 
 # Fixed geometry and simulation parameters passed to MPB
 fixed_parameters:
@@ -48,10 +48,10 @@ target:
 # Bayesian Optimizer & Surrogate Model Settings
 optimizer:
   iterations:
-    max_iterations: 0             # Total optimization generations (0 = initial batch only)
+    max_iterations: 0             # Total optimization generations (0 = initial exploration only)
     batch_size: 24                # Evaluations per batch
-    initial_points: 168           # Total initial exploration points
-    initial_sampling: "sobol"     # Sampling method: "sobol" or "lhs"
+    initial_points: 144           # Total initial exploration points (e.g. 144 for 12x12 grid)
+    initial_sampling: "grid"      # Sampling method: "grid", "sobol", "lhs", "halton", "hammersly", "random"
 
   surrogate:
     model: "GP"                   # Surrogate model: "GP", "RF", "ET", "GBRT"
@@ -67,10 +67,6 @@ optimizer:
     n_points: 500                 # Sampling candidates for acquisition maximization
     n_restarts: 1                 # Restarts for acquisition optimizer
 
-  grid:
-    enabled: false                # Bypass BO and evaluate uniform parameter grid
-    resolution: [16, 16]          # Grid points per parameter dimension
-
   visualization:
     save_surrogate_freq: 1        # Update bo_surrogate_map.png every N generations
     neglect_sigma: false          # Neglect posterior uncertainty sigma in surrogate map
@@ -78,7 +74,7 @@ optimizer:
 
 # Postprocessing: Degeneracy Loci Extraction & Analysis Pipeline
 postprocessing:
-  enabled: true                   # Enable postprocessing pipeline
+  enabled: false                   # Enable postprocessing pipeline
 
   # 1. Manifold Extraction & Skeletonization
   locus:

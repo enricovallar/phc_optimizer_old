@@ -232,10 +232,6 @@ optimizer:
     n_points: 500
     n_restarts: 1
 
-  grid:
-    enabled: false                # Set to true to evaluate uniform parameter grid
-    resolution: [10, 10]
-
   visualization:
     save_surrogate_freq: 1
     neglect_sigma: false

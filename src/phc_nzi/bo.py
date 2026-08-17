@@ -121,7 +121,6 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     opt_iter = opt_raw.get("iterations", {})
     opt_surr = opt_raw.get("surrogate", {})
     opt_acq = opt_raw.get("acquisition", {})
-    opt_grid = opt_raw.get("grid", {})
     opt_vis = opt_raw.get("visualization", {})
 
     opt = {
@@ -141,9 +140,6 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
         "n_points": int(opt_acq.get("n_points", opt_raw.get("n_points", 1000))),
         "n_restarts_optimizer": int(opt_acq.get("n_restarts", opt_raw.get("n_restarts_optimizer", 1))),
 
-        "grid_evaluation": bool(opt_grid.get("enabled", opt_raw.get("grid_evaluation", False))),
-        "grid_resolution": opt_grid.get("resolution", opt_raw.get("grid_resolution")),
-
         "save_surrogate_freq": int(opt_vis.get("save_surrogate_freq", opt_raw.get("save_surrogate_freq", 0))),
         "neglect_sigma": bool(opt_vis.get("neglect_sigma", opt_raw.get("neglect_sigma", False))),
         "surrogate_colorbar_limits": opt_vis.get("colorbar_limits", opt_raw.get("surrogate_colorbar_limits")),
@@ -151,7 +147,6 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     opt["iterations"] = opt_iter
     opt["surrogate"] = opt_surr
     opt["acquisition"] = opt_acq
-    opt["grid"] = opt_grid
     opt["visualization"] = opt_vis
     config["optimizer"] = opt
 
@@ -759,33 +754,9 @@ class BayesianOptimizer:
         return float(effective_cost)
 
 
-    def _generate_grid_points(self) -> List[List[float]]:
-        """Generates a uniform grid of parameter points across param_bounds."""
-        grid_res = self.opt_cfg.get("grid_resolution")
-        n_dims = len(self.param_names)
-
-        if isinstance(grid_res, int):
-            res_per_dim = [grid_res] * n_dims
-        elif isinstance(grid_res, (list, tuple)) and len(grid_res) == n_dims:
-            res_per_dim = [int(r) for r in grid_res]
-        else:
-            total_pts = self.opt_cfg.get("initial_points", 64)
-            n_per_dim = max(2, int(round(total_pts ** (1.0 / n_dims))))
-            res_per_dim = [n_per_dim] * n_dims
-
-        coords = [
-            np.linspace(float(b[0]), float(b[1]), n_pts)
-            for b, n_pts in zip(self.param_bounds, res_per_dim)
-        ]
-        if n_dims == 1:
-            return [[float(x)] for x in coords[0]]
-        mesh = np.meshgrid(*coords, indexing="ij")
-        points = np.vstack([m.ravel() for m in mesh]).T
-        return [[float(val) for val in pt] for pt in points]
-
     def run(self) -> Dict[str, Any]:
         """
-        Executes the main Bayesian Optimization loop or Uniform Grid Evaluation.
+        Executes the main Bayesian Optimization loop.
         """
         n_initial_pts = self.opt_cfg.get("initial_points", 8)
         batch_size = max(1, self.opt_cfg.get("batch_size", 4))
@@ -799,143 +770,97 @@ class BayesianOptimizer:
         self.irrep_log_file.write_text("")
         self.irreps_data_file.write_text("")
 
-        is_grid_mode = bool(
-            self.opt_cfg.get("grid_evaluation", False)
-            or self.opt_cfg.get("bypass_optimization", False)
-            or self.opt_cfg.get("grid_search", False)
-        )
+        initial_generations = math.ceil(n_initial_pts / batch_size)
+        total_generations = initial_generations + bo_generations
 
-        if is_grid_mode:
-            grid_pts = self._generate_grid_points()
-            total_evals = len(grid_pts)
-            n_batches = math.ceil(total_evals / batch_size)
-
-            print("==================================================================")
-            print("Starting Photonic Crystal Uniform Grid Evaluation (Bypass BO)")
-            print(f"Working Directory:   '{self.work_dir}'")
-            print(f"Output Directory:    '{self.output_dir}'")
-            print(f"Parameters:          {self.param_names}")
-            print(f"Target Irreps:       {self.target_cfg.get('target_irreps')} ({self.target_cfg.get('symmetry_group')})")
-            print(f"Grid Sampling:       {total_evals} points ({n_batches} batches)")
-            print(f"Surrogate Model:     {self.opt_cfg.get('model', 'GP')}")
-            print(f"Parallel Workers:    {workers} concurrent evaluation workers")
-            print(f"Only Gamma:          {self.sim_cfg.get('only_gamma', True)}")
-            print("==================================================================")
-
-            pbar = tqdm(total=n_batches, desc="Grid Progress", unit="batch")
-            for b_idx in range(n_batches):
-                batch_start = b_idx * batch_size
-                x_batch = grid_pts[batch_start : batch_start + batch_size]
-                gen = b_idx + 1
-
-                if workers > 1:
-                    with ThreadPoolExecutor(max_workers=workers) as executor:
-                        futures = [executor.submit(self.objective, gen, x) for x in x_batch]
-                        y_batch = [f.result() for f in futures]
-                else:
-                    y_batch = [self.objective(gen, x) for x in x_batch]
-
-                self.optimizer.tell(x_batch, y_batch)
-                best_score = min(self.optimizer.yi)
-
-                pbar.set_postfix({"batch": f"{b_idx+1}/{n_batches}", "best_cost": f"{best_score:.6f}"})
-                pbar.update(1)
-
-                if surrogate_freq > 0 and (b_idx + 1) % surrogate_freq == 0:
-                    self._plot_surrogate_map(verbose=False)
-
-            pbar.close()
-
-        else:
-            initial_generations = math.ceil(n_initial_pts / batch_size)
-            total_generations = initial_generations + bo_generations
-
-            print("==================================================================")
-            print("Starting Photonic Crystal Bayesian Optimization")
-            print(f"Working Directory:   '{self.work_dir}'")
-            print(f"Output Directory:    '{self.output_dir}'")
-            print(f"Parameters:          {self.param_names}")
-            print(f"Target Irreps:       {self.target_cfg.get('target_irreps')} ({self.target_cfg.get('symmetry_group')})")
-            print(f"Initial Sampling:    {self.opt_cfg.get('initial_sampling', 'sobol')} ({n_initial_pts} points = {initial_generations} initial gens)")
+        print("==================================================================")
+        print("Starting Photonic Crystal Bayesian Optimization")
+        print(f"Working Directory:   '{self.work_dir}'")
+        print(f"Output Directory:    '{self.output_dir}'")
+        print(f"Parameters:          {self.param_names}")
+        print(f"Target Irreps:       {self.target_cfg.get('target_irreps')} ({self.target_cfg.get('symmetry_group')})")
+        print(f"Initial Sampling:    {self.opt_cfg.get('initial_sampling', 'sobol')} ({n_initial_pts} points = {initial_generations} initial gens)")
+        if bo_generations > 0:
             print(f"Guided BO Phase:     {self.opt_cfg.get('model', 'GP')} ({bo_generations} GP gens, Batch Size: {batch_size})")
-            print(f"Total Generations:   {total_generations} ({total_generations * batch_size} max evals)")
-            print(f"Parallel Workers:    {workers} concurrent evaluation workers")
-            print(f"Only Gamma:          {self.sim_cfg.get('only_gamma', True)}")
-            print("==================================================================")
+        print(f"Total Generations:   {total_generations} ({total_generations * batch_size} max evals)")
+        print(f"Parallel Workers:    {workers} concurrent evaluation workers")
+        print(f"Only Gamma:          {self.sim_cfg.get('only_gamma', True)}")
+        print("==================================================================")
 
-            pbar = tqdm(total=total_generations, desc="BO Progress", unit="gen")
-            for gen in range(total_generations):
-                t_gen_start = time.perf_counter()
+        pbar = tqdm(total=total_generations, desc="BO Progress", unit="gen")
+        for gen in range(total_generations):
+            t_gen_start = time.perf_counter()
 
-                t_ask_0 = time.perf_counter()
-                x_batch = self.optimizer.ask(n_points=batch_size, strategy=strategy)
-                t_ask = time.perf_counter() - t_ask_0
+            t_ask_0 = time.perf_counter()
+            x_batch = self.optimizer.ask(n_points=batch_size, strategy=strategy)
+            t_ask = time.perf_counter() - t_ask_0
 
-                t_workers_0 = time.perf_counter()
-                if workers > 1:
-                    with ThreadPoolExecutor(max_workers=workers) as executor:
-                        futures = [
-                            executor.submit(self.objective, gen + 1, x) for x in x_batch
-                        ]
-                        y_batch = [f.result() for f in futures]
-                else:
-                    y_batch = [self.objective(gen + 1, x) for x in x_batch]
-                t_workers = time.perf_counter() - t_workers_0
-
-                t_tell_0 = time.perf_counter()
-                self.optimizer.tell(x_batch, y_batch)
-                t_tell = time.perf_counter() - t_tell_0
-
-                t_gen_total = time.perf_counter() - t_gen_start
-                best_score = min(self.optimizer.yi)
-                current_evals = len(self.optimizer.Xi)
-
-                debug_t = bool(self.sim_cfg.get("debug_timing", False) or self.opt_cfg.get("debug_timing", False))
-                if debug_t:
-                    gen_recs = self.records[-len(x_batch):]
-                    geom_times = [r["timing"]["t_geom"] for r in gen_recs if "timing" in r]
-                    run1_times = [r["timing"]["t_run1"] for r in gen_recs if "timing" in r]
-                    run2_times = [r["timing"]["t_run2"] for r in gen_recs if "timing" in r]
-
-                    avg_geom = float(np.mean(geom_times)) if geom_times else 0.0
-                    avg_r1 = float(np.mean(run1_times)) if run1_times else 0.0
-                    min_r1 = float(np.min(run1_times)) if run1_times else 0.0
-                    max_r1 = float(np.max(run1_times)) if run1_times else 0.0
-
-                    avg_r2 = float(np.mean(run2_times)) if run2_times else 0.0
-                    min_r2 = float(np.min(run2_times)) if run2_times else 0.0
-                    max_r2 = float(np.max(run2_times)) if run2_times else 0.0
-
-                    summary_lines = [
-                        "=" * 70,
-                        f"GENERATION {gen+1:02d} TIMING SUMMARY ({len(x_batch)} Parallel Workers)",
-                        "-" * 70,
-                        f"Geometry Continuity Check : avg {avg_geom:.3f} s",
-                        f"MPB Run 1 (Gamma & Irreps): avg {avg_r1:.2f} s | min {min_r1:.2f} s | max {max_r1:.2f} s",
-                        f"MPB Run 2 (Group Velocity): avg {avg_r2:.2f} s | min {min_r2:.2f} s | max {max_r2:.2f} s",
-                        f"ML Acquisition Search (ask):     {t_ask:.3f} s",
-                        f"ML Model Update (tell)     :     {t_tell:.3f} s",
-                        f"Generation Total Wall Time :     {t_gen_total:.2f} s",
-                        "=" * 70 + "\n",
+            t_workers_0 = time.perf_counter()
+            if workers > 1:
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = [
+                        executor.submit(self.objective, gen + 1, x) for x in x_batch
                     ]
-                    summary_text = "\n".join(summary_lines)
-                    tqdm.write(summary_text)
-                    with open(self.irrep_log_file, "a") as f:
-                        f.write(summary_text)
+                    y_batch = [f.result() for f in futures]
+            else:
+                y_batch = [self.objective(gen + 1, x) for x in x_batch]
+            t_workers = time.perf_counter() - t_workers_0
 
-                if gen < initial_generations:
-                    phase_str = f"Initial Sobol ({current_evals}/{n_initial_pts} pts)"
-                else:
-                    bo_idx = gen - initial_generations + 1
-                    phase_str = f"Guided GP ({bo_idx}/{bo_generations})"
+            t_tell_0 = time.perf_counter()
+            self.optimizer.tell(x_batch, y_batch)
+            t_tell = time.perf_counter() - t_tell_0
 
-                pbar.set_postfix({"phase": phase_str, "best_cost": f"{best_score:.6f}"})
-                pbar.update(1)
+            t_gen_total = time.perf_counter() - t_gen_start
+            best_score = min(self.optimizer.yi)
+            current_evals = len(self.optimizer.Xi)
 
-                if surrogate_freq > 0 and (gen + 1) % surrogate_freq == 0:
-                    self._plot_surrogate_map(verbose=False)
+            debug_t = bool(self.sim_cfg.get("debug_timing", False) or self.opt_cfg.get("debug_timing", False))
+            if debug_t:
+                gen_recs = self.records[-len(x_batch):]
+                geom_times = [r["timing"]["t_geom"] for r in gen_recs if "timing" in r]
+                run1_times = [r["timing"]["t_run1"] for r in gen_recs if "timing" in r]
+                run2_times = [r["timing"]["t_run2"] for r in gen_recs if "timing" in r]
 
-            pbar.close()
+                avg_geom = float(np.mean(geom_times)) if geom_times else 0.0
+                avg_r1 = float(np.mean(run1_times)) if run1_times else 0.0
+                min_r1 = float(np.min(run1_times)) if run1_times else 0.0
+                max_r1 = float(np.max(run1_times)) if run1_times else 0.0
+
+                avg_r2 = float(np.mean(run2_times)) if run2_times else 0.0
+                min_r2 = float(np.min(run2_times)) if run2_times else 0.0
+                max_r2 = float(np.max(run2_times)) if run2_times else 0.0
+
+                summary_lines = [
+                    "=" * 70,
+                    f"GENERATION {gen+1:02d} TIMING SUMMARY ({len(x_batch)} Parallel Workers)",
+                    "-" * 70,
+                    f"Geometry Continuity Check : avg {avg_geom:.3f} s",
+                    f"MPB Run 1 (Gamma & Irreps): avg {avg_r1:.2f} s | min {min_r1:.2f} s | max {max_r1:.2f} s",
+                    f"MPB Run 2 (Group Velocity): avg {avg_r2:.2f} s | min {min_r2:.2f} s | max {max_r2:.2f} s",
+                    f"ML Acquisition Search (ask):     {t_ask:.3f} s",
+                    f"ML Model Update (tell)     :     {t_tell:.3f} s",
+                    f"Generation Total Wall Time :     {t_gen_total:.2f} s",
+                    "=" * 70 + "\n",
+                ]
+                summary_text = "\n".join(summary_lines)
+                tqdm.write(summary_text)
+                with open(self.irrep_log_file, "a") as f:
+                    f.write(summary_text)
+
+            init_method = self.opt_cfg.get("initial_sampling", "sobol").capitalize()
+            if gen < initial_generations:
+                phase_str = f"Initial {init_method} ({current_evals}/{n_initial_pts} pts)"
+            else:
+                bo_idx = gen - initial_generations + 1
+                phase_str = f"Guided GP ({bo_idx}/{bo_generations})"
+
+            pbar.set_postfix({"phase": phase_str, "best_cost": f"{best_score:.6f}"})
+            pbar.update(1)
+
+            if surrogate_freq > 0 and (gen + 1) % surrogate_freq == 0:
+                self._plot_surrogate_map(verbose=False)
+
+        pbar.close()
 
 
 

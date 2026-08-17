@@ -62,7 +62,7 @@ optimizer:
     max_iterations: 15            # Guided BO generations after initial sampling
     batch_size: 4                 # Candidates evaluated concurrently per generation
     initial_points: 16            # Total initial sampling points
-    initial_sampling: "sobol"     # Initial sampling method: "sobol" or "lhs"
+    initial_sampling: "sobol"     # Initial sampling method: "sobol", "grid", "lhs", "halton", "hammersly", "random"
 
   surrogate:
     model: "GP"                   # Surrogate model: "GP", "RF", "ET", "GBRT"
@@ -77,10 +77,6 @@ optimizer:
     optimizer: "sampling"         # Acquisition optimizer ("sampling" or "lbfgs")
     n_points: 500                 # Sampling candidates for acquisition maximization
     n_restarts: 1                 # Restarts for acquisition optimizer
-
-  grid:
-    enabled: false                # Bypass BO and evaluate uniform parameter grid
-    resolution: [10, 10]          # Uniform grid resolution per dimension
 
   visualization:
     save_surrogate_freq: 1        # Save bo_surrogate_map.png every N generations (0 = only at end)

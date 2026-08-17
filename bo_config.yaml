@@ -12,8 +12,8 @@ simulation:
 
 # Optimization parameters (continuous search bounds: [min, max] in lattice units a)
 parameters:
-  r1: [0.15, 0.35]                # Primary cylinder radius r1
-  r2: [0.15, 0.35]                # Secondary cylinder radius r2
+  r1: [0.2, 0.4]                # Primary cylinder radius r1
+  r2: [0.2, 0.4]                # Secondary cylinder radius r2
 
 # Fixed geometry & simulation parameters passed to MPB
 fixed_parameters:
