@@ -1284,9 +1284,11 @@ class BayesianOptimizer:
                         json_path = self.output_dir / "bo_loci.json"
                         export_loci_to_json(loci, json_path)
 
-                        # Generate 1D Locus Profile figure (Group Velocity & FOM)
+                        # Generate 3-panel Locus Profile figure (Parameter Space, Group Velocity & FOM)
                         plot_locus_profiles(
                             loci,
+                            param_names=self.param_names,
+                            param_bounds=self.param_bounds,
                             output_path=self.output_dir / "bo_locus_profile.png",
                             title=f"Optimal Locus ({target_str})"
                         )

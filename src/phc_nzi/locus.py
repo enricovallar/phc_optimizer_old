@@ -336,22 +336,44 @@ def export_loci_to_json(loci: List[Dict[str, Any]], json_path: Union[str, Path])
 
 def plot_locus_profiles(
     loci: List[Dict[str, Any]],
+    param_names: Optional[List[str]] = None,
+    param_bounds: Optional[List[Tuple[float, float]]] = None,
     output_path: Union[str, Path] = "bo_locus_profile.png",
     title: str = "Optimal Locus Analysis",
 ) -> None:
     """
-    Plots the Group Velocity and FOM profiles along the extracted optimal locus trajectory.
+    Plots a 3-panel figure analyzing the extracted optimal locus:
+    - Panel (a): Parameter Space trajectory (r1 vs r2) color-coded by group velocity vg.
+    - Panel (b): Group Velocity profile vg/c vs normalized arc length t.
+    - Panel (c): Figure of Merit profile FOM vs normalized arc length t (log scale).
     """
     import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    from matplotlib.ticker import FormatStrFormatter
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    if not loci:
+        return
+
+    p1_name = param_names[0] if param_names and len(param_names) > 0 else "r1"
+    p2_name = param_names[1] if param_names and len(param_names) > 1 else "r2"
+
+    p1_label = f"${p1_name[0]}_{{{p1_name[1:]}}}/a$" if len(p1_name) > 1 and p1_name[1:].isdigit() else f"${p1_name}/a$"
+    p2_label = f"${p2_name[0]}_{{{p2_name[1:]}}}/a$" if len(p2_name) > 1 and p2_name[1:].isdigit() else f"${p2_name}/a$"
+
     has_vg = any("group_velocity" in l or "vg" in l for l in loci)
-    n_rows = 2 if has_vg else 1
-    fig, axes = plt.subplots(n_rows, 1, figsize=(8.5, 3.8 * n_rows), sharex=True)
-    if n_rows == 1:
-        axes = [axes]
+
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    # 3-panel horizontal layout
+    fig = plt.figure(figsize=(16.2, 4.8))
+    gs = gridspec.GridSpec(1, 3, width_ratios=[1.0, 1.0, 1.0], wspace=0.38)
+
+    ax_param = fig.add_subplot(gs[0, 0])
+    ax_vg = fig.add_subplot(gs[0, 1])
+    ax_fom = fig.add_subplot(gs[0, 2])
 
     colors = ["#00B050", "#0070C0", "#E30613", "#7030A0"]
 
@@ -359,38 +381,82 @@ def plot_locus_profiles(
         c = colors[idx % len(colors)]
         l_id = locus["locus_id"]
         r1_vals = np.array(locus["r1"])
+        r2_vals = np.array(locus["r2"])
         fom_vals = np.array(locus["fom"])
         t_vals = np.linspace(0, 1, len(r1_vals))
         vg_vals = np.array(locus.get("group_velocity") or locus.get("vg") or [])
 
         lbl = f"Locus #{l_id}" if len(loci) > 1 else "Optimal Locus"
 
-        # Row 0: Group Velocity (if available) or FOM
-        if has_vg and len(vg_vals) == len(t_vals):
-            ax_vg = axes[0]
-            ax_vg.plot(t_vals, vg_vals, "-o", color=c, linewidth=2.0, markersize=4.5, label=lbl)
-            ax_vg.set_ylabel(r"Group Velocity $v_g / c$", fontsize=11, fontweight="bold")
-            ax_vg.set_title(f"{title}: Group Velocity & FOM Profiles", fontsize=12, fontweight="bold")
-            ax_vg.grid(True, linestyle=":", alpha=0.6)
-            ax_vg.legend(loc="upper right", frameon=True)
-
-            ax_fom = axes[1]
-            ax_fom.plot(t_vals, fom_vals, "-s", color=c, linewidth=1.8, markersize=4.0, label=lbl)
-            ax_fom.set_yscale("log")
-            ax_fom.set_ylabel(r"$\mathrm{FOM} = \mathbb{E}[C]^{-1}$", fontsize=11, fontweight="bold")
-            ax_fom.set_xlabel(r"Normalized Locus Trajectory $t \in [0, 1]$", fontsize=11, fontweight="bold")
-            ax_fom.grid(True, linestyle=":", alpha=0.6)
+        # -------------------------------------------------------------
+        # Panel (a): Parameter Space Trajectory
+        # -------------------------------------------------------------
+        if has_vg and len(vg_vals) == len(r1_vals):
+            # Connect curve with thin underlying line
+            ax_param.plot(r1_vals, r2_vals, color="#888888", linestyle="--", linewidth=1.5, zorder=3)
+            # Scatter color-coded by group velocity
+            sc = ax_param.scatter(
+                r1_vals,
+                r2_vals,
+                c=vg_vals,
+                cmap="plasma",
+                s=40,
+                edgecolors="black",
+                linewidths=0.5,
+                zorder=4,
+                label=lbl,
+            )
+            divider = make_axes_locatable(ax_param)
+            cax = divider.append_axes("right", size="5%", pad=0.08)
+            cbar_p = fig.colorbar(sc, cax=cax)
+            cbar_p.set_label(r"$v_g / c$", fontsize=10, fontweight="bold")
+            cbar_p.ax.tick_params(labelsize=8.5)
         else:
-            ax_fom = axes[0]
-            ax_fom.plot(t_vals, fom_vals, "-s", color=c, linewidth=1.8, markersize=4.0, label=lbl)
-            ax_fom.set_yscale("log")
-            ax_fom.set_ylabel(r"$\mathrm{FOM} = \mathbb{E}[C]^{-1}$", fontsize=11, fontweight="bold")
-            ax_fom.set_xlabel(r"Normalized Locus Trajectory $t \in [0, 1]$", fontsize=11, fontweight="bold")
-            ax_fom.set_title(f"{title}: Figure of Merit Profile", fontsize=12, fontweight="bold")
-            ax_fom.grid(True, linestyle=":", alpha=0.6)
-            ax_fom.legend(loc="upper right", frameon=True)
+            ax_param.plot(r1_vals, r2_vals, "-o", color=c, linewidth=2.0, markersize=4.0, zorder=4, label=lbl)
 
-    fig.tight_layout()
+        # Mark Start (t=0) and End (t=1)
+        ax_param.scatter(r1_vals[0], r2_vals[0], c="#00FF00", edgecolors="black", marker="o", s=85, zorder=6, label=r"Start ($t=0$)")
+        ax_param.scatter(r1_vals[-1], r2_vals[-1], c="#FF0000", edgecolors="black", marker="s", s=85, zorder=6, label=r"End ($t=1$)")
+
+        ax_param.set_xlabel(p1_label, fontsize=11, fontweight="bold")
+        ax_param.set_ylabel(p2_label, fontsize=11, fontweight="bold")
+        ax_param.set_title("(a) Parameter Space Trajectory", fontsize=11.5, fontweight="bold")
+        ax_param.set_aspect("equal", adjustable="box")
+        ax_param.grid(True, linestyle=":", alpha=0.6)
+        ax_param.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+        ax_param.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+        ax_param.legend(loc="center", frameon=True, framealpha=0.85, fontsize=8.5)
+
+        if param_bounds and len(param_bounds) >= 2:
+            ax_param.set_xlim(float(param_bounds[0][0]), float(param_bounds[0][1]))
+            ax_param.set_ylim(float(param_bounds[1][0]), float(param_bounds[1][1]))
+
+        # -------------------------------------------------------------
+        # Panel (b): Group Velocity Profile
+        # -------------------------------------------------------------
+        if has_vg and len(vg_vals) == len(t_vals):
+            ax_vg.plot(t_vals, vg_vals, "-o", color="#0070C0", linewidth=2.0, markersize=4.5, label=r"$v_g(t)$")
+            ax_vg.set_ylabel(r"Group Velocity $v_g / c$", fontsize=11, fontweight="bold")
+            ax_vg.set_xlabel(r"Normalized Trajectory $t \in [0, 1]$", fontsize=11, fontweight="bold")
+            ax_vg.set_title(r"(b) Group Velocity $v_g / c$", fontsize=11.5, fontweight="bold")
+            ax_vg.grid(True, linestyle=":", alpha=0.6)
+            ax_vg.legend(loc="upper right", frameon=True, fontsize=9)
+        else:
+            ax_vg.text(0.5, 0.5, "Group Velocity\nNot Evaluated", horizontalalignment="center", verticalalignment="center", transform=ax_vg.transAxes)
+            ax_vg.set_title(r"(b) Group Velocity $v_g / c$", fontsize=11.5, fontweight="bold")
+
+        # -------------------------------------------------------------
+        # Panel (c): Figure of Merit Profile
+        # -------------------------------------------------------------
+        ax_fom.plot(t_vals, fom_vals, "-s", color="#00B050", linewidth=1.8, markersize=4.0, label=r"$\mathrm{FOM}(t)$")
+        ax_fom.set_yscale("log")
+        ax_fom.set_ylabel(r"$\mathrm{FOM} = \mathbb{E}[C]^{-1}$", fontsize=11, fontweight="bold")
+        ax_fom.set_xlabel(r"Normalized Trajectory $t \in [0, 1]$", fontsize=11, fontweight="bold")
+        ax_fom.set_title(r"(c) $\mathrm{FOM} = \mathbb{E}[C]^{-1}$", fontsize=11.5, fontweight="bold")
+        ax_fom.grid(True, linestyle=":", alpha=0.6)
+        ax_fom.legend(loc="upper right", frameon=True, fontsize=9)
+
+    fig.suptitle(f"{title}", fontsize=13, fontweight="bold", y=0.99)
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved locus profile plot to '{path}'")
