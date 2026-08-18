@@ -1729,14 +1729,19 @@ class BayesianOptimizer:
                 if verbose:
                     max_gap = max(locus["residual_gap"]) if locus["residual_gap"] else 0.0
                     mean_gap = sum(locus["residual_gap"]) / max(len(locus["residual_gap"]), 1)
-                    if num_pruned > 0:
+                    if num_pruned > 0 and valid_indices:
                         print(
                             f"  Locus #{l_id} refined: {len(locus['r1'])}/{n_pts} points valid "
-                            f"(pruned {num_pruned} unrefined boundary points). "
+                            f"(pruned {num_pruned} points exceeding gap {max_residual_gap:.1e}). "
                             f"Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}"
                         )
+                    elif num_pruned > 0 and not valid_indices:
+                        print(
+                            f"  Locus #{l_id} refined: All {n_pts} points retained (residual gaps {min(costs_ref):.2e} - {max(costs_ref):.2e} exceed cutoff {max_residual_gap:.1e}). "
+                            f"Mean gap = {mean_gap:.2e}"
+                        )
                     else:
-                        print(f"  Locus #{l_id} refined: Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}")
+                        print(f"  Locus #{l_id} refined: All {n_pts} points within tolerance. Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}")
             else:
                 if verbose:
                     max_gap = max(costs_ref)
@@ -1772,6 +1777,8 @@ class BayesianOptimizer:
             target_bands = best_rec.get("target_bands")
         if not target_bands:
             target_bands = self.target_cfg.get("mode_indices") or self.target_cfg.get("target_bands") or [4, 5, 6]
+
+        pol = str(self.target_cfg.get("polarization", "te")).lower()
         post_cfg = getattr(self, "post_cfg", {}) or {}
         post_vg = post_cfg.get("group_velocity", {}) if isinstance(post_cfg.get("group_velocity"), dict) else {}
         post_bd = post_cfg.get("band_diagram", {}) if isinstance(post_cfg.get("band_diagram"), dict) else (post_cfg.get("band_structure", {}) if isinstance(post_cfg.get("band_structure"), dict) else {})
