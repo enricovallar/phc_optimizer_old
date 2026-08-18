@@ -1936,8 +1936,60 @@ class BayesianOptimizer:
             self.optimizer.tell(xi_list, yi_list)
 
         self._plot_convergence()
-        self._plot_surrogate_map(verbose=True)
+        self._plot_surrogate_map(final=False, verbose=True)
         print(f"Plotting complete! All figures saved inside '{self.output_dir}'")
+
+    def postprocess_only(self) -> None:
+        """Loads existing simulation data/model and executes only the postprocessing pipeline (locus extraction, refinement, and simulations)."""
+        if not self.json_file.is_file() and not self.data_file.is_file() and not self.model_file.is_file():
+            print(f"Error: No existing optimization data or model found in '{self.output_dir}' to postprocess.")
+            return
+
+        print("==================================================================")
+        print("Running Postprocessing Pipeline on Existing Optimization Output...")
+        print(f"Working Directory:   '{self.work_dir}'")
+        print(f"Output Directory:    '{self.output_dir}'")
+        print("==================================================================")
+
+        # Load existing trained model if available
+        if self.model_file.is_file():
+            try:
+                self.optimizer = joblib.load(self.model_file)
+            except Exception as e:
+                print(f"Notice: Could not load {self.model_file}, will reconstruct: {e}")
+
+        if self.json_file.is_file():
+            try:
+                with open(self.json_file, "r") as f:
+                    self.records = json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not load JSON data from {self.json_file}: {e}")
+
+        if not hasattr(self.optimizer, "models") or not self.optimizer.models:
+            xi_list = []
+            yi_list = []
+            mode = self.opt_cfg.get("objective_mode", "log")
+            target_cost = self.target_cfg.get("target_cost")
+
+            for r in self.records:
+                if "params" in r and "raw_cost" in r:
+                    pt = [r["params"][name] for name in self.param_names if name in r["params"]]
+                    if len(pt) == len(self.param_names):
+                        xi_list.append(pt)
+                        raw_c = float(r["raw_cost"])
+                        eff_c = target_cost if (target_cost is not None and raw_c < target_cost) else raw_c
+                        if mode == "log":
+                            y_val = float(np.log10(max(eff_c, 1e-12)))
+                        else:
+                            y_val = float(eff_c)
+                        yi_list.append(y_val)
+
+            if xi_list and yi_list:
+                self.optimizer.tell(xi_list, yi_list)
+
+        self._plot_convergence(verbose=True)
+        self._plot_surrogate_map(final=True, verbose=True)
+        print(f"Postprocessing complete! All outputs saved inside '{self.output_dir}'")
 
 
 def run_bo(config_path: Union[str, os.PathLike], work_dir: Optional[Union[str, os.PathLike]] = None) -> Dict[str, Any]:
@@ -1974,7 +2026,13 @@ def main():
         "--plot",
         "-p",
         action="store_true",
-        help="Only re-plot previous simulation data and surrogate/group velocity maps without running MPB simulations.",
+        help="Only re-plot previous simulation data and surrogate map without running simulations.",
+    )
+    parser.add_argument(
+        "--postprocess",
+        "--postprocess-only",
+        action="store_true",
+        help="Run only the postprocessing pipeline (loci extraction, refinement line search, and per-point simulations) on existing optimization output.",
     )
 
     args = parser.parse_args()
@@ -1986,7 +2044,13 @@ def main():
         if alt_path.is_file():
             config_path = str(alt_path)
 
-    if args.plot:
+    if args.postprocess:
+        config = load_bo_config(config_path)
+        if args.dir:
+            config["simulation"]["work_dir"] = str(args.dir)
+        opt = BayesianOptimizer(config)
+        opt.postprocess_only()
+    elif args.plot:
         config = load_bo_config(config_path)
         if args.dir:
             config["simulation"]["work_dir"] = str(args.dir)

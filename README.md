@@ -264,15 +264,33 @@ postprocessing:
     plot_profiles: true           # Generate 3-panel bo_locus_profile.png
 ```
 
+### CLI Usage
+
+```bash
+# 1. Run full Bayesian Optimization + Postprocessing pipeline:
+uv run phc-bo --config InP/bo_config.yaml --dir InP
+
+# 2. Run ONLY Postprocessing on existing optimization data (extracts loci, refines degeneracy, runs per-point simulations):
+uv run phc-bo --config InP/bo_config.yaml --dir InP --postprocess
+
+# 3. Re-plot figures from previous data without running any simulations:
+uv run phc-bo --config InP/bo_config.yaml --dir InP --plot
+```
+
 ### Python API Usage
 
 ```python
-from phc_nzi import run_bo, BayesianOptimizer
+from phc_nzi import run_bo, BayesianOptimizer, load_bo_config
 
 # Run optimization using YAML configuration
 results = run_bo(config_path="InP/bo_config.yaml", work_dir="InP")
-
 print("Optimal parameters:", results["optimal_parameters"])
+
+# Or run postprocessing only programmatically:
+cfg = load_bo_config("InP/bo_config.yaml")
+cfg["simulation"]["work_dir"] = "InP"
+opt = BayesianOptimizer(cfg)
+opt.postprocess_only()
 ```
 
 ### Generated Optimization Output Structure (`bo_output/`):
