@@ -25,6 +25,8 @@ phc-plotter = "phc_nzi.plotter:main"
 phc-transformer = "phc_nzi.transformer:main"
 phc-rectifier = "phc_nzi.transformer:main"
 phc-bo = "phc_nzi.bo:main"
+phc-design = "phc_nzi.design_curves:main"
+phc-slab-sweep = "phc_nzi.slab_sweeper:main"
 
 
 [build-system]

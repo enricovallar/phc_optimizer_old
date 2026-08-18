@@ -9,12 +9,18 @@
       (primitive-load filename)
       (primitive-load-path filename)))
 
-; Default MPB Solver Parameters
-; Note: MPB's C runtime initializes num-bands=1 and resolution=10 by default.
-; If not overridden via command-line k=v arguments, set standard defaults:
-(if (= num-bands 1) (set! num-bands 8))
-(if (= resolution 10) (set! resolution 32))
+; Helper to check if current simulation is a 3D slab (finite supercell height sz)
+(define (is-slab?)
+  (and (defined? 'sz) (not (equal? (primitive-eval 'sz) no-size))))
+
+; Default MPB Solver Parameters (safe type-checks for scalar vs vector3)
+(if (and (number? resolution) (= resolution 10)) (set! resolution 32))
+(if (and (number? num-bands) (= num-bands 1)) (set! num-bands 8))
 (set! deterministic? true)
+
+; Default resolution in z-direction for 3D slabs
+(define-param res-z 16)
+(define-param res_z 16)
 
 ; Dynamic mode execution flags (can be overridden via CLI k=v pairs or case scripts)
 (define-param run-te? true)

@@ -1,6 +1,7 @@
 import subprocess
 import os
 import argparse
+import shlex
 from pathlib import Path
 from typing import Union, Dict, Any
 
@@ -76,8 +77,8 @@ def run_hpc(
     if only_gamma:
         mpb_command_line_params["only-gamma?"] = "true"
 
-    # Format MPB command line parameters (k=v pairs)
-    params = " ".join(f"{k}={v}" for k, v in mpb_command_line_params.items())
+    # Format MPB command line parameters (k=v pairs) safely escaped for bash
+    params = " ".join(shlex.quote(f"{k}={v}") for k, v in mpb_command_line_params.items())
 
     # Set MPI vs single-core command
     if use_mpi:

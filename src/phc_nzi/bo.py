@@ -13,6 +13,7 @@ import joblib
 import argparse
 import tempfile
 import threading
+import copy
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -35,35 +36,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="skopt")
 
 
 
-def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
+def validate_and_normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Loads and validates a Bayesian Optimization configuration file (YAML or JSON format).
-
-    Parameters:
-    -----------
-    config_path : str or PathLike
-        Path to the configuration file.
-
-    Returns:
-    --------
-    dict
-        Parsed configuration dictionary with defaults applied.
+    Validates and normalizes an optimization configuration dictionary with defaults.
     """
-    path = Path(config_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"Optimization configuration file not found at '{config_path}'")
-
-    with open(path, "r") as f:
-        if path.suffix in [".yaml", ".yml"]:
-            config = yaml.safe_load(f)
-        elif path.suffix == ".json":
-            config = json.load(f)
-        else:
-            # Attempt YAML parsing by default
-            config = yaml.safe_load(f)
-
     if not isinstance(config, dict):
-        raise ValueError(f"Invalid configuration file contents in '{config_path}'. Expected a dictionary.")
+        raise ValueError(f"Invalid configuration dictionary. Expected a dict, got {type(config)}.")
 
     # 1. Simulation configuration
     sim_raw = config.get("simulation", {})
@@ -175,6 +153,16 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
         "compute_group_velocity": bool(post_vg.get("enabled", post_raw.get("compute_group_velocity", False))),
         "delta_k": float(post_vg.get("delta_k", target["delta_k"])),
 
+        "compute_band_diagram": bool(
+            (post_raw.get("band_diagram", {}).get("enabled") if isinstance(post_raw.get("band_diagram"), dict) else None)
+            if post_raw.get("band_diagram") is not None
+            else (
+                post_raw.get("band_structure", {}).get("enabled", True)
+                if isinstance(post_raw.get("band_structure"), dict)
+                else post_raw.get("compute_band_diagram", True)
+            )
+        ),
+
         "export_csv": bool(post_out.get("export_csv", post_raw.get("export_csv", True))),
         "plot_overlay": bool(post_out.get("plot_overlay", post_raw.get("plot_overlay", True))),
         "plot_profiles": bool(post_out.get("plot_profiles", post_raw.get("plot_profiles", True))),
@@ -182,10 +170,40 @@ def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
     post["locus"] = post_loc
     post["refinement"] = post_ref
     post["group_velocity"] = post_vg
+    post["band_diagram"] = post_raw.get("band_diagram") or post_raw.get("band_structure") or {"enabled": post["compute_band_diagram"]}
     post["output"] = post_out
     config["postprocessing"] = post
 
     return config
+
+
+def load_bo_config(config_path: Union[str, os.PathLike]) -> Dict[str, Any]:
+    """
+    Loads and validates a Bayesian Optimization configuration file (YAML or JSON format).
+
+    Parameters:
+    -----------
+    config_path : str or PathLike
+        Path to the configuration file.
+
+    Returns:
+    --------
+    dict
+        Parsed configuration dictionary with defaults applied.
+    """
+    path = Path(config_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Optimization configuration file not found at '{config_path}'")
+
+    with open(path, "r") as f:
+        if path.suffix in [".yaml", ".yml"]:
+            config = yaml.safe_load(f)
+        elif path.suffix == ".json":
+            config = json.load(f)
+        else:
+            config = yaml.safe_load(f)
+
+    return validate_and_normalize_config(config)
 
 
 def _majority(iterable) -> bool:
@@ -363,13 +381,13 @@ class BayesianOptimizer:
     """
 
     def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.sim_cfg = config["simulation"]
-        self.params_cfg = config["parameters"]
-        self.fixed_params = config.get("fixed_parameters", {})
-        self.target_cfg = config["target"]
-        self.opt_cfg = config["optimizer"]
-        self.post_cfg = config.get("postprocessing", {})
+        self.config = validate_and_normalize_config(copy.deepcopy(config))
+        self.sim_cfg = self.config["simulation"]
+        self.params_cfg = self.config["parameters"]
+        self.fixed_params = self.config.get("fixed_parameters", {})
+        self.target_cfg = self.config["target"]
+        self.opt_cfg = self.config["optimizer"]
+        self.post_cfg = self.config.get("postprocessing", {})
 
         self.param_names = list(self.params_cfg.keys())
         self.param_bounds = [self.params_cfg[k] for k in self.param_names]
@@ -1099,25 +1117,57 @@ class BayesianOptimizer:
             except Exception:
                 grid_points_transformed = grid_points
 
+            mode = self.opt_cfg.get("objective_mode", "log").lower()
+
             # Predict surrogate landscape
-            if hasattr(model, "predict"):
+            # When evaluated records are available, fit clean GP on valid physical points (cost < 0.5)
+            # to eliminate boundary penalty step distortions from the smooth dispersion landscape
+            clean_pts = []
+            clean_y = []
+            for r in self.records:
+                if "params" in r and "raw_cost" in r:
+                    c_val = float(r["raw_cost"])
+                    if c_val < 0.5:
+                        clean_pts.append([float(r["params"][p1_name]), float(r["params"][p2_name])])
+                        clean_y.append(np.log10(max(c_val, 1e-12)) if mode == "log" else c_val)
+
+            fitted_clean = False
+            if len(clean_pts) >= 10:
                 try:
-                    if hasattr(model, "return_std"):
-                        mu_grid, std_grid = model.predict(grid_points_transformed, return_std=True)
-                    else:
-                        mu_grid, std_grid = model.predict(grid_points_transformed, return_std=True)
+                    from skopt.learning import GaussianProcessRegressor
+                    from skopt.learning.gaussian_process.kernels import Matern, WhiteKernel
+                    clean_gp = GaussianProcessRegressor(
+                        kernel=Matern(length_scale=0.035, length_scale_bounds=(0.015, 0.08), nu=2.5) + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-5, 1e-1)),
+                        normalize_y=True,
+                        n_restarts_optimizer=3,
+                        random_state=42,
+                    )
+                    clean_gp.fit(np.array(clean_pts), np.array(clean_y))
+                    mu_grid = clean_gp.predict(grid_points).reshape(X1.shape)
+                    std_grid = np.zeros_like(mu_grid)
+                    fitted_clean = True
                 except Exception:
+                    fitted_clean = False
+
+            if not fitted_clean:
+                if hasattr(model, "predict"):
                     try:
-                        mu_grid = model.predict(grid_points_transformed)
-                        std_grid = np.zeros_like(mu_grid)
+                        if hasattr(model, "return_std"):
+                            mu_grid, std_grid = model.predict(grid_points_transformed, return_std=True)
+                        else:
+                            mu_grid, std_grid = model.predict(grid_points_transformed, return_std=True)
                     except Exception:
-                        mu_grid = np.zeros(len(grid_points))
-                        std_grid = np.zeros_like(mu_grid)
-                mu_grid = mu_grid.reshape(X1.shape)
-                std_grid = std_grid.reshape(X1.shape)
-            else:
-                mu_grid = np.zeros(X1.shape)
-                std_grid = np.zeros(X1.shape)
+                        try:
+                            mu_grid = model.predict(grid_points_transformed)
+                            std_grid = np.zeros_like(mu_grid)
+                        except Exception:
+                            mu_grid = np.zeros(len(grid_points))
+                            std_grid = np.zeros_like(mu_grid)
+                    mu_grid = mu_grid.reshape(X1.shape)
+                    std_grid = std_grid.reshape(X1.shape)
+                else:
+                    mu_grid = np.zeros(X1.shape)
+                    std_grid = np.zeros(X1.shape)
 
             mode = self.opt_cfg.get("objective_mode", "log").lower()
             Xi = np.array(self.optimizer.Xi)
@@ -1229,62 +1279,30 @@ class BayesianOptimizer:
             )
 
             # ---------------------------------------------------------
-            # Postprocessing: Parametric Optimal Loci Extraction & Evaluation (Final pass only)
+            # Postprocessing: Parametric Optimal Loci Extraction & Evaluation
             # ---------------------------------------------------------
             post_cfg = getattr(self, "post_cfg", {}) or {}
-            if final and post_cfg.get("enabled", False):
+            loci = None
+            if post_cfg.get("enabled", False):
                 try:
                     from .locus import extract_optimal_loci, export_loci_to_json
                     loci = extract_optimal_loci(x1, x2, predicted_e_c_inv, post_cfg)
-                    if loci:
-                        # Run full simulations for each point along each locus into locus_XX/pt_YY/
-                        loci = self._evaluate_locus_simulations(loci, verbose=verbose)
-
-                        if post_cfg.get("plot_overlay", True):
-                            for locus in loci:
-                                l_id = locus["locus_id"]
-                                r1_unref = locus.get("r1_unrefined")
-                                r2_unref = locus.get("r2_unrefined")
-                                r1_pts = locus["r1"]
-                                r2_pts = locus["r2"]
-                                if r1_unref is not None and r2_unref is not None:
-                                    lbl_gp = "GP Locus" if len(loci) == 1 else f"GP Locus #{l_id}"
-                                    ax2.plot(
-                                        r1_unref,
-                                        r2_unref,
-                                        color="#00FF66",
-                                        linestyle="--",
-                                        linewidth=1.8,
-                                        alpha=0.75,
-                                        label=lbl_gp,
-                                        zorder=7,
-                                    )
-                                    lbl_ref = "Refined Locus" if len(loci) == 1 else f"Refined Locus #{l_id}"
-                                    ax2.plot(
-                                        r1_pts,
-                                        r2_pts,
-                                        color="#00FFFF",
-                                        linestyle="-",
-                                        linewidth=2.2,
-                                        alpha=0.95,
-                                        label=lbl_ref,
-                                        zorder=8,
-                                    )
-                                else:
-                                    lbl_text = "Optimal Locus" if len(loci) == 1 else f"Locus #{l_id}"
-                                    ax2.plot(
-                                        r1_pts,
-                                        r2_pts,
-                                        color="#00FF66",
-                                        linestyle="--",
-                                        linewidth=2.2,
-                                        alpha=0.95,
-                                        label=lbl_text,
-                                        zorder=7,
-                                    )
-
-                        json_path = self.output_dir / "bo_loci.json"
-                        export_loci_to_json(loci, json_path)
+                    if loci and post_cfg.get("plot_overlay", True):
+                        for locus in loci:
+                            l_id = locus["locus_id"]
+                            r1_pts = locus["r1"]
+                            r2_pts = locus["r2"]
+                            lbl_gp = "GP Locus" if len(loci) == 1 else f"GP Locus #{l_id}"
+                            ax2.plot(
+                                r1_pts,
+                                r2_pts,
+                                color="#00FF66",
+                                linestyle="--",
+                                linewidth=2.0,
+                                alpha=0.85,
+                                label=lbl_gp,
+                                zorder=7,
+                            )
                 except Exception as e:
                     if verbose:
                         print(f"Note: Postprocessing locus extraction notice: {e}")
@@ -1315,15 +1333,62 @@ class BayesianOptimizer:
             cbar.ax.tick_params(which="major", direction="in", length=5)
             cbar.ax.tick_params(which="minor", direction="in", length=2.5)
 
+            # Update legend and save initial figure with GP-locus immediately
             handles1, labels1 = ax1.get_legend_handles_labels()
             handles2, labels2 = ax2.get_legend_handles_labels()
             by_label = dict(zip(labels1 + labels2, handles1 + handles2))
-            fig.legend(by_label.values(), by_label.keys(), loc="lower center", bbox_to_anchor=(0.5, -0.06), ncol=3, facecolor="white", edgecolor="black")
+            leg = fig.legend(by_label.values(), by_label.keys(), loc="lower center", bbox_to_anchor=(0.5, -0.06), ncol=3, facecolor="white", edgecolor="black")
 
             fig.savefig(surrogate_file, dpi=200, bbox_inches="tight")
-            plt.close(fig)
             if verbose:
-                print(f"Saved surrogate map plot to '{surrogate_file}'")
+                print(f"Saved surrogate map plot (with GP locus) to '{surrogate_file}'")
+
+            # Run refinement & simulations on final pass
+            if final and post_cfg.get("enabled", False) and loci:
+                try:
+                    from .locus import export_loci_to_json
+                    loci = self._evaluate_locus_simulations(loci, verbose=verbose)
+
+                    ref_enabled = bool(
+                        post_cfg.get("refinement", {}).get("enabled", post_cfg.get("ensure_degeneracy", False))
+                    )
+                    has_refined_data = any(l.get("r1_unrefined") is not None for l in loci)
+
+                    if post_cfg.get("plot_overlay", True) and ref_enabled and has_refined_data:
+                        for locus in loci:
+                            l_id = locus["locus_id"]
+                            r1_ref = locus["r1"]
+                            r2_ref = locus["r2"]
+                            lbl_ref = "Refined Locus" if len(loci) == 1 else f"Refined Locus #{l_id}"
+                            ax2.plot(
+                                r1_ref,
+                                r2_ref,
+                                color="#00FFFF",
+                                linestyle="-",
+                                linewidth=2.2,
+                                alpha=0.95,
+                                label=lbl_ref,
+                                zorder=8,
+                            )
+
+                        # Update legend and re-save figure with refined locus
+                        handles1, labels1 = ax1.get_legend_handles_labels()
+                        handles2, labels2 = ax2.get_legend_handles_labels()
+                        by_label = dict(zip(labels1 + labels2, handles1 + handles2))
+                        leg.remove()
+                        fig.legend(by_label.values(), by_label.keys(), loc="lower center", bbox_to_anchor=(0.5, -0.06), ncol=3, facecolor="white", edgecolor="black")
+
+                        fig.savefig(surrogate_file, dpi=200, bbox_inches="tight")
+                        if verbose:
+                            print(f"Updated surrogate map plot (with refined locus) to '{surrogate_file}'")
+
+                    json_path = self.output_dir / "bo_loci.json"
+                    export_loci_to_json(loci, json_path)
+                except Exception as e:
+                    if verbose:
+                        print(f"Note: Postprocessing refinement overlay notice: {e}")
+
+            plt.close(fig)
 
         else:
             try:
@@ -1707,9 +1772,12 @@ class BayesianOptimizer:
             target_bands = best_rec.get("target_bands")
         if not target_bands:
             target_bands = self.target_cfg.get("mode_indices") or self.target_cfg.get("target_bands") or [4, 5, 6]
-        pol = str(self.target_cfg.get("polarization", "te")).lower()
         post_cfg = getattr(self, "post_cfg", {}) or {}
         post_vg = post_cfg.get("group_velocity", {}) if isinstance(post_cfg.get("group_velocity"), dict) else {}
+        post_bd = post_cfg.get("band_diagram", {}) if isinstance(post_cfg.get("band_diagram"), dict) else (post_cfg.get("band_structure", {}) if isinstance(post_cfg.get("band_structure"), dict) else {})
+
+        compute_vg = bool(post_vg.get("enabled", post_cfg.get("compute_group_velocity", False)))
+        compute_bd = bool(post_bd.get("enabled", post_cfg.get("compute_band_diagram", True)))
         delta_k = float(post_vg.get("delta_k", post_cfg.get("delta_k", self.target_cfg.get("delta_k", 0.001))))
 
         worker_cand = (
@@ -1731,184 +1799,192 @@ class BayesianOptimizer:
             gap_pts = locus.get("residual_gap", [])
             n_pts = len(r1_pts)
 
-            if verbose:
-                print(f"Running full MPB simulations for Locus #{l_id} ({n_pts} points into '{locus_dir.name}/', {max_workers} concurrent workers)...")
+            if not compute_bd and not compute_vg:
+                if verbose:
+                    print(f"Skipping per-point simulations for Locus #{l_id} (both band_diagram and group_velocity disabled in postprocessing).")
+            else:
+                if verbose:
+                    sim_desc = "full band structure + group velocity" if (compute_bd and compute_vg) else ("band structure" if compute_bd else "group velocity")
+                    print(f"Running {sim_desc} MPB simulations for Locus #{l_id} ({n_pts} points into '{locus_dir.name}/', {max_workers} concurrent workers)...")
 
-            point_tasks = []
-            for i in range(n_pts):
-                pt_idx = i + 1
-                pt_dir = locus_dir / f"pt_{pt_idx:02d}"
-                pt_dir.mkdir(parents=True, exist_ok=True)
+                point_tasks = []
+                for i in range(n_pts):
+                    pt_idx = i + 1
+                    pt_dir = locus_dir / f"pt_{pt_idx:02d}"
+                    pt_dir.mkdir(parents=True, exist_ok=True)
 
-                p_entry = {}
-                if len(self.param_names) >= 1:
-                    p_entry[self.param_names[0]] = float(r1_pts[i])
-                if len(self.param_names) >= 2:
-                    p_entry[self.param_names[1]] = float(r2_pts[i])
+                    p_entry = {}
+                    if len(self.param_names) >= 1:
+                        p_entry[self.param_names[0]] = float(r1_pts[i])
+                    if len(self.param_names) >= 2:
+                        p_entry[self.param_names[1]] = float(r2_pts[i])
 
-                t_norm = float(i) / max(n_pts - 1, 1)
-                fom_val = float(fom_pts[i]) if i < len(fom_pts) else 0.0
-                gap_val = float(gap_pts[i]) if i < len(gap_pts) else 0.0
-                point_tasks.append((pt_idx, t_norm, p_entry, fom_val, gap_val, pt_dir))
+                    t_norm = float(i) / max(n_pts - 1, 1)
+                    fom_val = float(fom_pts[i]) if i < len(fom_pts) else 0.0
+                    gap_val = float(gap_pts[i]) if i < len(gap_pts) else 0.0
+                    point_tasks.append((pt_idx, t_norm, p_entry, fom_val, gap_val, pt_dir))
 
-            def run_single_point(task_args):
-                pt_idx, t_norm, p_dict, fom_val, gap_val, pt_dir = task_args
-                bs_dir = pt_dir / "band_structure"
-                vg_dir = pt_dir / "group_velocity"
-                bs_dir.mkdir(parents=True, exist_ok=True)
-                vg_dir.mkdir(parents=True, exist_ok=True)
+                def run_single_point(task_args):
+                    pt_idx, t_norm, p_dict, fom_val, gap_val, pt_dir = task_args
+                    bs_dir = pt_dir / "band_structure"
+                    vg_dir = pt_dir / "group_velocity"
 
-                # 1. Full band structure simulation (k-path)
-                bs_params = {**self.fixed_params, **p_dict}
-                bs_params["display_symmetry?"] = "true"
-                bs_params["display_group_velocity?"] = "false"
-                bs_params["only_gamma?"] = "false"
-                bs_params["delta_k_mode?"] = "false"
+                    # 1. Full band structure simulation (k-path)
+                    if compute_bd:
+                        bs_dir.mkdir(parents=True, exist_ok=True)
+                        bs_params = {**self.fixed_params, **p_dict}
+                        bs_params["display_symmetry?"] = "true"
+                        bs_params["display_group_velocity?"] = "false"
+                        bs_params["only_gamma?"] = "false"
+                        bs_params["delta_k_mode?"] = "false"
 
-                run_hpc(
-                    script=self._get_script_path(),
-                    mpb_command_line_params=bs_params,
-                    use_mpi=False,
-                    cores=self.sim_cfg.get("cores", 1),
-                    wd=bs_dir,
-                    auto_extract=True,
-                    auto_plot=False,
-                    only_gamma=False,
-                    verbose=False,
-                )
+                        run_hpc(
+                            script=self._get_script_path(),
+                            mpb_command_line_params=bs_params,
+                            use_mpi=False,
+                            cores=self.sim_cfg.get("cores", 1),
+                            wd=bs_dir,
+                            auto_extract=True,
+                            auto_plot=False,
+                            only_gamma=False,
+                            verbose=False,
+                        )
 
-                # Move files from bs_dir/output to bs_dir if output subdirectory exists
-                raw_out_dir = bs_dir / "output"
-                if raw_out_dir.is_dir():
-                    for item in raw_out_dir.iterdir():
-                        dest = bs_dir / item.name
-                        if dest.exists():
-                            if dest.is_dir():
-                                shutil.rmtree(dest)
-                            else:
-                                dest.unlink()
-                        shutil.move(str(item), str(dest))
-                    shutil.rmtree(raw_out_dir, ignore_errors=True)
+                        # Move files from bs_dir/output to bs_dir if output subdirectory exists
+                        raw_out_dir = bs_dir / "output"
+                        if raw_out_dir.is_dir():
+                            for item in raw_out_dir.iterdir():
+                                dest = bs_dir / item.name
+                                if dest.exists():
+                                    if dest.is_dir():
+                                        shutil.rmtree(dest)
+                                    else:
+                                        dest.unlink()
+                                shutil.move(str(item), str(dest))
+                            shutil.rmtree(raw_out_dir, ignore_errors=True)
 
-                # Generate clean band structure plot and epsilon map
-                try:
-                    from .plotter import plot_band_structure, plot_epsilon
-                    plot_band_structure(
-                        data_path=bs_dir,
-                        output_path=bs_dir / "band_structure.png",
-                        bands=target_bands,
-                        polarization=pol,
-                        highlight_gaps=False,
-                        style="light",
-                        verbose=False,
-                    )
-                    for h5_candidate in list(bs_dir.glob("*-epsilon.h5")):
-                        if not h5_candidate.name.endswith(".converted.h5"):
-                            plot_epsilon(
-                                h5_path=h5_candidate,
-                                output_path=bs_dir / "epsilon_map.png",
-                                rectify=True,
+                        # Generate clean band structure plot and epsilon map
+                        try:
+                            from .plotter import plot_band_structure, plot_epsilon
+                            plot_band_structure(
+                                data_path=bs_dir,
+                                output_path=bs_dir / "band_structure.png",
+                                bands=target_bands,
+                                polarization=pol,
+                                highlight_gaps=False,
+                                style="light",
                                 verbose=False,
                             )
-                            break
-                except Exception:
-                    pass
+                            for h5_candidate in list(bs_dir.glob("*-epsilon.h5")):
+                                if not h5_candidate.name.endswith(".converted.h5"):
+                                    plot_epsilon(
+                                        h5_path=h5_candidate,
+                                        output_path=bs_dir / "epsilon_map.png",
+                                        rectify=True,
+                                        verbose=False,
+                                        plane="both",
+                                    )
+                                    break
+                        except Exception:
+                            pass
 
-                # 2. Single-point group velocity simulation at k = (delta_k, 0, 0)
-                vg_params = {**self.fixed_params, **p_dict}
-                vg_params["display_symmetry?"] = "false"
-                vg_params["display_group_velocity?"] = "true"
-                vg_params["only_gamma?"] = "false"
-                vg_params["delta_k_mode?"] = "true"
-                vg_params["delta_k"] = delta_k
-                vg_params["delta-k"] = delta_k
+                    # 2. Single-point group velocity simulation at k = (delta_k, 0, 0)
+                    vg_val = 0.0
+                    if compute_vg:
+                        vg_dir.mkdir(parents=True, exist_ok=True)
+                        vg_params = {**self.fixed_params, **p_dict}
+                        vg_params["display_symmetry?"] = "false"
+                        vg_params["display_group_velocity?"] = "true"
+                        vg_params["only_gamma?"] = "false"
+                        vg_params["delta_k_mode?"] = "true"
+                        vg_params["delta_k"] = delta_k
+                        vg_params["delta-k"] = delta_k
 
-                run_hpc(
-                    script=self._get_script_path(),
-                    mpb_command_line_params=vg_params,
-                    use_mpi=False,
-                    cores=self.sim_cfg.get("cores", 1),
-                    wd=vg_dir,
-                    auto_extract=True,
-                    auto_plot=False,
-                    only_gamma=False,
-                    verbose=False,
-                )
+                        run_hpc(
+                            script=self._get_script_path(),
+                            mpb_command_line_params=vg_params,
+                            use_mpi=False,
+                            cores=self.sim_cfg.get("cores", 1),
+                            wd=vg_dir,
+                            auto_extract=True,
+                            auto_plot=False,
+                            only_gamma=False,
+                            verbose=False,
+                        )
 
-                # Move files from vg_dir/output to vg_dir
-                raw_vg_out = vg_dir / "output"
-                if raw_vg_out.is_dir():
-                    for item in raw_vg_out.iterdir():
-                        dest = vg_dir / item.name
-                        if dest.exists():
-                            if dest.is_dir():
-                                shutil.rmtree(dest)
-                            else:
-                                dest.unlink()
-                        shutil.move(str(item), str(dest))
-                    shutil.rmtree(raw_vg_out, ignore_errors=True)
+                        # Move files from vg_dir/output to vg_dir
+                        raw_vg_out = vg_dir / "output"
+                        if raw_vg_out.is_dir():
+                            for item in raw_vg_out.iterdir():
+                                dest = vg_dir / item.name
+                                if dest.exists():
+                                    if dest.is_dir():
+                                        shutil.rmtree(dest)
+                                    else:
+                                        dest.unlink()
+                                shutil.move(str(item), str(dest))
+                            shutil.rmtree(raw_vg_out, ignore_errors=True)
 
-                # Extract group velocity at delta_k
-                vg_log = vg_dir / "output.out"
-                vg_val = 0.0
-                if vg_log.is_file():
-                    from .extractor import extract_group_velocities
-                    vg_data = extract_group_velocities(output_path=vg_log, save_data=True, verbose=False)
-                    flat_recs = vg_data.get("flat_records", [])
-                    target_vgs = []
-                    for rec_v in flat_recs:
-                        if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) in target_bands:
-                            vx_val = float(rec_v.get("vx", 0.0))
-                            if np.isnan(vx_val):
-                                vx_val = float(rec_v.get("vg_mag", 0.0))
-                            target_vgs.append(vx_val)
-                    if target_vgs:
-                        vg_val = float(max(target_vgs))
+                        # Extract group velocity at delta_k
+                        vg_log = vg_dir / "output.out"
+                        if vg_log.is_file():
+                            from .extractor import extract_group_velocities
+                            vg_data = extract_group_velocities(output_path=vg_log, save_data=True, verbose=False)
+                            flat_recs = vg_data.get("flat_records", [])
+                            target_vgs = []
+                            for rec_v in flat_recs:
+                                if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) in target_bands:
+                                    vx_val = float(rec_v.get("vx", 0.0))
+                                    if np.isnan(vx_val):
+                                        vx_val = float(rec_v.get("vg_mag", 0.0))
+                                    target_vgs.append(vx_val)
+                            if target_vgs:
+                                vg_val = float(max(target_vgs))
 
-                # Save point_info.json in pt_dir
-                pt_info = {
-                    "locus_id": l_id,
-                    "point_index": pt_idx,
-                    "t_normalized": t_norm,
-                    "params": p_dict,
-                    "group_velocity": vg_val,
-                    "delta_k": delta_k,
-                    "predicted_fom": fom_val,
-                    "residual_gap": gap_val,
-                    "target_bands": target_bands,
-                    "is_valid": bool(locus.get("is_valid", [True] * n_pts)[pt_idx - 1]) if "is_valid" in locus and (pt_idx - 1) < len(locus["is_valid"]) else True,
-                    "validity_status": str(locus.get("validity_status", ["PASSED"] * n_pts)[pt_idx - 1]) if "validity_status" in locus and (pt_idx - 1) < len(locus["validity_status"]) else "PASSED",
-                }
-                if "r1_unrefined" in locus and (pt_idx - 1) < len(locus["r1_unrefined"]):
-                    pt_info["unrefined_params"] = {
-                        self.param_names[0]: locus["r1_unrefined"][pt_idx - 1],
+                    # Save point_info.json in pt_dir
+                    pt_info = {
+                        "locus_id": l_id,
+                        "point_index": pt_idx,
+                        "t_normalized": t_norm,
+                        "params": p_dict,
+                        "group_velocity": vg_val if compute_vg else None,
+                        "delta_k": delta_k if compute_vg else None,
+                        "predicted_fom": fom_val,
+                        "residual_gap": gap_val,
+                        "target_bands": target_bands,
+                        "is_valid": bool(locus.get("is_valid", [True] * n_pts)[pt_idx - 1]) if "is_valid" in locus and (pt_idx - 1) < len(locus["is_valid"]) else True,
+                        "validity_status": str(locus.get("validity_status", ["PASSED"] * n_pts)[pt_idx - 1]) if "validity_status" in locus and (pt_idx - 1) < len(locus["validity_status"]) else "PASSED",
                     }
-                    if len(self.param_names) >= 2:
-                        pt_info["unrefined_params"][self.param_names[1]] = locus["r2_unrefined"][pt_idx - 1]
+                    if "r1_unrefined" in locus and (pt_idx - 1) < len(locus["r1_unrefined"]):
+                        pt_info["unrefined_params"] = {
+                            self.param_names[0]: locus["r1_unrefined"][pt_idx - 1],
+                        }
+                        if len(self.param_names) >= 2:
+                            pt_info["unrefined_params"][self.param_names[1]] = locus["r2_unrefined"][pt_idx - 1]
 
-                with open(pt_dir / "point_info.json", "w") as f:
-                    json.dump(pt_info, f, indent=2)
+                    with open(pt_dir / "point_info.json", "w") as f:
+                        json.dump(pt_info, f, indent=2)
 
-                return pt_idx - 1, vg_val
+                    return pt_idx - 1, vg_val
 
-            results = []
-            pbar = tqdm(total=n_pts, desc=f"Simulating Locus #{l_id}", unit="pt", disable=not verbose)
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(run_single_point, task): task[0] for task in point_tasks}
-                for f in as_completed(futures):
-                    res = f.result()
-                    results.append(res)
-                    idx_0, vg_v = res
-                    pbar.set_postfix({"pt": f"{idx_0+1:02d}/{n_pts:02d}", "vg": f"{vg_v:.4f}"})
-                    pbar.update(1)
-            pbar.close()
+                results = []
+                pbar = tqdm(total=n_pts, desc=f"Simulating Locus #{l_id}", unit="pt", disable=not verbose)
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(run_single_point, task): task[0] for task in point_tasks}
+                    for f in as_completed(futures):
+                        res = f.result()
+                        results.append(res)
+                        idx_0, vg_v = res
+                        pbar.set_postfix({"pt": f"{idx_0+1:02d}/{n_pts:02d}", "vg": f"{vg_v:.4f}"})
+                        pbar.update(1)
+                pbar.close()
 
-            vg_ordered = [0.0] * n_pts
-            for idx_0, vg_v in results:
-                vg_ordered[idx_0] = vg_v
-
-            locus["group_velocity"] = vg_ordered
-            locus["vg"] = vg_ordered
+                if compute_vg:
+                    vg_ordered = [0.0] * n_pts
+                    for idx_0, vg_v in results:
+                        vg_ordered[idx_0] = vg_v
+                    locus["group_velocity"] = vg_ordered
+                    locus["vg"] = vg_ordered
 
             # Save per-locus CSV and 3-panel profile figure
             from .locus import export_loci_to_csv, plot_locus_profiles

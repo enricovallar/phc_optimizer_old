@@ -260,6 +260,9 @@ postprocessing:
     enabled: true                 # Calculate group velocity at each refined locus point in parallel
     delta_k: 0.01
 
+  band_diagram:
+    enabled: true                 # Run full k-path MPB simulations across locus points (generates band_structure.png & epsilon_map.png)
+
   output:
     export_csv: true              # Export extracted curve coordinates to bo_locus.csv
     plot_overlay: true            # Overlay both GP surrogate and refined loci on bo_surrogate_map.png
@@ -332,5 +335,44 @@ opt.postprocess_only()
     └── ...
 ```
 
+---
 
+## 3D Slab Wavelength-Tuning & Universal Design Curves (`phc-slab-sweep` & `phc-design`)
 
+Based on the physical scaling principles in *Vallar et al., Optical Materials Express 16, 2681–2695 (2026)*:
+1. **Master Dimensionless Sweep (`phc-slab-sweep`)**: Sweeps normalized slab thickness ratios $h/a$ (e.g. $[0.30, 0.35, 0.40, 0.45, 0.50]$), running Bayesian Optimization and extracting optimal Dirac cone loci for each $h/a$.
+2. **Universal Design Curves (`phc-design`)**: Ingests the master sweep dataset and applies scale-invariance scaling laws to generate continuous design curves ($a(h)$, $r_1(h)$, $r_2(h)$, $FF(h)$, $v_g(h)$) for **any** target operational wavelength $\lambda_0$ (e.g. $1550\text{ nm}$).
+
+### CLI Usage
+
+```bash
+# 1. Run multi-thickness sweep over normalized slab thicknesses h/a:
+uv run phc-slab-sweep --config "InP slab/bo_config.yaml" --h-ratios 0.30 0.35 0.40 0.45 0.50
+
+# 2. Generate publication-quality design curves for a target wavelength:
+uv run phc-design --input "InP slab/sweep_results" --wavelength 1550 --output "InP slab/design_rules_1550nm.png" --highlight 375.0
+```
+
+### Python API Usage
+
+```python
+from phc_nzi import run_slab_sweep, generate_design_curves, SlabDesignCurves
+
+# Run sweep across slab thicknesses
+sweep_res = run_slab_sweep(
+    config_path="InP slab/bo_config.yaml",
+    h_ratios=[0.30, 0.35, 0.40, 0.45, 0.50],
+    target_wavelength_nm=1550.0,
+)
+
+# Query design curves for a specific physical slab thickness (e.g. 375 nm):
+curves = SlabDesignCurves("InP slab/sweep_results/slab_sweep_summary.csv", lambda0_nm=1550.0)
+design = curves.query(h_nm=375.0)
+
+print(f"Target h = 375 nm @ 1550 nm:")
+print(f"  Lattice constant a: {design['a_nm']:.1f} nm")
+print(f"  Hole radius r1:     {design['r1_nm']:.1f} nm")
+print(f"  Hole radius r2:     {design['r2_nm']:.1f} nm")
+print(f"  Filling factor FF:  {design['filling_factor']:.3f}")
+print(f"  Group velocity:     {design['vg_over_c']:.3f} c")
+```

@@ -6,6 +6,8 @@ from .symmetry import compute_projections, identify_irrep, detect_point_group, a
 from .bo import BayesianOptimizer, run_bo, load_bo_config
 from .init import init_folder
 from .geometry_check import check_slab_connectivity, check_array_connectivity
+from .design_curves import SlabDesignCurves, generate_design_curves
+from .slab_sweeper import run_slab_sweep
 
 __all__ = [
     "run_hpc",
@@ -31,4 +33,7 @@ __all__ = [
     "init_folder",
     "check_slab_connectivity",
     "check_array_connectivity",
+    "SlabDesignCurves",
+    "generate_design_curves",
+    "run_slab_sweep",
 ]

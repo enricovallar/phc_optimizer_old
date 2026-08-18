@@ -112,8 +112,8 @@ def skeletonize_mask(mask: np.ndarray) -> np.ndarray:
 
 def order_skeleton_points(pts_x: np.ndarray, pts_y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Orders 2D skeleton pixel coordinates into a continuous sequential open trajectory
-    from one extremal endpoint to the other along the manifold spine using BFS graph diameter.
+    Orders 2D skeleton pixel coordinates into a continuous sequential trajectory,
+    handling both open branches and complete 360-degree closed circular loops.
     """
     if len(pts_x) <= 2:
         return pts_x, pts_y
@@ -138,41 +138,29 @@ def order_skeleton_points(pts_x: np.ndarray, pts_y: np.ndarray) -> Tuple[np.ndar
                 adj[i].append(j)
                 adj[j].append(i)
 
-    # 2-pass BFS to extract graph diameter (longest simple geodesic path)
-    def bfs_farthest(start_node: int) -> Tuple[int, Dict[int, int], Dict[int, Optional[int]]]:
-        dist = {start_node: 0}
-        parent: Dict[int, Optional[int]] = {start_node: None}
-        queue = [start_node]
-        farthest = start_node
-        while queue:
-            curr = queue.pop(0)
-            for nbr in adj[curr]:
-                if nbr not in dist:
-                    dist[nbr] = dist[curr] + 1
-                    parent[nbr] = curr
-                    queue.append(nbr)
-                    if dist[nbr] > dist[farthest]:
-                        farthest = nbr
-        return farthest, dist, parent
+    # Identify degree-1 endpoints (if open branch)
+    deg1 = [i for i, nbrs in enumerate(adj) if len(nbrs) == 1]
+    start = deg1[0] if deg1 else 0
 
-    node_a, _, _ = bfs_farthest(0)
-    node_b, dist_b, parent_b = bfs_farthest(node_a)
+    visited = set([start])
+    path = [start]
+    curr = start
+    while len(visited) < n:
+        unvisited_nbrs = [nbr for nbr in adj[curr] if nbr not in visited]
+        if unvisited_nbrs:
+            next_node = min(unvisited_nbrs, key=lambda j: np.hypot(pts_x[curr] - pts_x[j], pts_y[curr] - pts_y[j]))
+        else:
+            unvisited_all = [i for i in range(n) if i not in visited]
+            next_node = min(unvisited_all, key=lambda j: np.hypot(pts_x[curr] - pts_x[j], pts_y[curr] - pts_y[j]))
+        visited.add(next_node)
+        path.append(next_node)
+        curr = next_node
 
-    path = []
-    curr: Optional[int] = node_b
-    while curr is not None:
-        path.append(curr)
-        curr = parent_b.get(curr)
-    path = path[::-1]
+    # If it was a closed loop (no degree-1 endpoints), append start to complete the 360-degree loop
+    if not deg1:
+        path.append(start)
 
-    if len(path) >= 2:
-        ordered_x = pts_x[path]
-        ordered_y = pts_y[path]
-    else:
-        ordered_x = pts_x
-        ordered_y = pts_y
-
-    return ordered_x, ordered_y
+    return pts_x[path], pts_y[path]
 
 
 def extract_optimal_loci(
@@ -276,6 +264,8 @@ def extract_optimal_loci(
         ord_x1 = ord_x1[valid_steps]
         ord_x2 = ord_x2[valid_steps]
 
+        is_closed_loop = (len(ord_x1) >= 6 and np.hypot(ord_x1[0] - ord_x1[-1], ord_x2[0] - ord_x2[-1]) < 0.02)
+
         if len(ord_x1) < 4:
             # Fallback to linear interpolation if too few points for cubic spline
             u_fine = np.linspace(0, 1, n_sample)
@@ -284,7 +274,10 @@ def extract_optimal_loci(
         else:
             k = min(spline_degree, len(ord_x1) - 1, 3)
             try:
-                tck, u = splprep([ord_x1, ord_x2], s=smoothness, k=k)
+                if is_closed_loop:
+                    tck, u = splprep([ord_x1[:-1], ord_x2[:-1]], s=smoothness, k=k, per=True)
+                else:
+                    tck, u = splprep([ord_x1, ord_x2], s=smoothness, k=k, per=False)
                 u_fine = np.linspace(0, 1, n_sample)
                 curve_x1, curve_x2 = splev(u_fine, tck)
             except Exception:

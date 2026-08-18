@@ -66,6 +66,12 @@
 (define-param display_group_velocity? false)
 
 (define (run-solver-with-callbacks solver)
+  ; Automatically handle anisotropic resolution & FFT optimization for 3D slabs
+  (if (is-slab?)
+      (begin
+        (if (number? resolution)
+            (set! resolution (vector3 resolution resolution (if (defined? 'res-z) res-z res_z))))
+        (optimize-grid-size!)))
   (let ((callbacks '()))
     (if (or display-symmetry? display_symmetry?)
         (set! callbacks (append callbacks (list display-symmetries))))

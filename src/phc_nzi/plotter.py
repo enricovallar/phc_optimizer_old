@@ -245,14 +245,15 @@ def plot_epsilon(
     rectify: bool = True,
     options: Optional[Any] = None,
     slice_idx: Optional[int] = None,
+    plane: str = "auto",
     cmap: str = "managua_r",
-    title: str = "Dielectric Function Grid (Epsilon)",
+    title: Optional[str] = None,
     show: bool = False,
     dpi: int = 300,
     verbose: bool = False,
-) -> Tuple[plt.Figure, plt.Axes]:
+) -> Tuple[plt.Figure, Any]:
     """
-    Plot 2D dielectric epsilon cross-section map from an HDF5 grid file.
+    Plot 2D dielectric epsilon cross-section map or 3D multi-panel (in-plane + vertical) map.
 
     Parameters:
     -----------
@@ -265,10 +266,12 @@ def plot_epsilon(
     options : MPBDataOptions, optional
         Options for mpb-data conversion (default: MPBDataOptions(rectify=True, periods=(3, 3, 1))).
     slice_idx : int, optional
-        Z-plane slice index for 3D grids. Defaults to center slice.
-    cmap : str, default 'viridis'
+        Z-plane slice index for 3D grids (or slicing coordinate). Defaults to center slice.
+    plane : str, default 'auto'
+        Slicing plane to plot: 'auto' (2-panel XY+XZ for 3D, single for 2D), 'xy', 'xz', 'yz', or 'both'.
+    cmap : str, default 'managua_r'
         Matplotlib colormap for dielectric values.
-    title : str
+    title : str, optional
         Plot title.
     show : bool, default False
         Whether to call plt.show().
@@ -277,7 +280,7 @@ def plot_epsilon(
 
     Returns:
     --------
-    (fig, ax) : matplotlib Figure and Axes objects.
+    (fig, ax) : matplotlib Figure and Axes (or array of Axes).
     """
     h5_file = Path(h5_path).resolve()
     if not h5_file.is_file():
@@ -286,7 +289,7 @@ def plot_epsilon(
     if rectify and not h5_file.name.endswith(".converted.h5"):
         try:
             from .transformer import transform_h5_data, MPBDataOptions
-            h5_file = transform_h5_data(h5_file, options=options or MPBDataOptions(), verbose=verbose)
+            h5_file = transform_h5_data(h5_file, options=options or MPBDataOptions(periods=(3, 3, 1)), verbose=verbose)
         except Exception as e:
             if verbose:
                 print(f"Note: Grid transformation fallback: {e}")
@@ -295,27 +298,75 @@ def plot_epsilon(
         key = "data" if "data" in f else ("epsilon.xx" if "epsilon.xx" in f else list(f.keys())[0])
         data = np.array(f[key])
 
-    # Extract 2D slice if 3D array
-    if data.ndim == 3:
-        if slice_idx is None:
-            slice_idx = data.shape[2] // 2
-        data_2d = data[:, :, slice_idx]
-    elif data.ndim == 2:
-        data_2d = data
-    else:
-        raise ValueError(f"Unsupported array dimensions ({data.ndim}D) in HDF5 file")
-
     with _plot_lock:
-        fig, ax = plt.subplots(figsize=(6, 6), dpi=dpi)
-        im = ax.imshow(data_2d.T, origin="lower", cmap=cmap, interpolation="nearest")
+        if data.ndim == 3 and plane in ["auto", "both"]:
+            nx, ny, nz = data.shape
+            z_idx = slice_idx if slice_idx is not None else nz // 2
+            y_idx = ny // 2
 
-        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label(r"Permittivity $\epsilon$", fontsize=11, fontweight="bold")
+            xy_slice = data[:, :, z_idx]
+            xz_slice = data[:, y_idx, :]
 
-        ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
-        ax.set_xlabel("Grid X", fontsize=10, fontweight="bold")
-        ax.set_ylabel("Grid Y", fontsize=10, fontweight="bold")
-        fig.tight_layout()
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 5), dpi=dpi)
+
+            im1 = ax1.imshow(xy_slice.T, origin="lower", cmap=cmap, interpolation="nearest")
+            ax1.set_title(title or "In-Plane Slice (XY, z=0)", fontsize=11.5, fontweight="bold", pad=8)
+            ax1.set_xlabel("Grid X", fontsize=9.5, fontweight="bold")
+            ax1.set_ylabel("Grid Y", fontsize=9.5, fontweight="bold")
+            cbar1 = fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+            cbar1.set_label(r"Permittivity $\epsilon$", fontsize=10, fontweight="bold")
+
+            im2 = ax2.imshow(xz_slice.T, origin="lower", cmap=cmap, interpolation="nearest", aspect="auto")
+            ax2.set_title("Vertical Slab Slice (XZ, y=0)", fontsize=11.5, fontweight="bold", pad=8)
+            ax2.set_xlabel("Grid X", fontsize=9.5, fontweight="bold")
+            ax2.set_ylabel("Grid Z", fontsize=9.5, fontweight="bold")
+            cbar2 = fig.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
+            cbar2.set_label(r"Permittivity $\epsilon$", fontsize=10, fontweight="bold")
+
+            fig.tight_layout()
+            ret_axes = (ax1, ax2)
+
+        else:
+            # Single-panel 2D or specific plane cut
+            if data.ndim == 3:
+                nx, ny, nz = data.shape
+                if plane == "xz":
+                    y_idx = slice_idx if slice_idx is not None else ny // 2
+                    data_2d = data[:, y_idx, :]
+                    xlabel, ylabel = "Grid X", "Grid Z"
+                    default_title = "Vertical Slab Slice (XZ)"
+                    aspect = "auto"
+                elif plane == "yz":
+                    x_idx = slice_idx if slice_idx is not None else nx // 2
+                    data_2d = data[x_idx, :, :]
+                    xlabel, ylabel = "Grid Y", "Grid Z"
+                    default_title = "Vertical Slab Slice (YZ)"
+                    aspect = "auto"
+                else:  # xy
+                    z_idx = slice_idx if slice_idx is not None else nz // 2
+                    data_2d = data[:, :, z_idx]
+                    xlabel, ylabel = "Grid X", "Grid Y"
+                    default_title = "In-Plane Slice (XY)"
+                    aspect = "equal"
+            elif data.ndim == 2:
+                data_2d = data
+                xlabel, ylabel = "Grid X", "Grid Y"
+                default_title = "Dielectric Function Grid (Epsilon)"
+                aspect = "equal"
+            else:
+                raise ValueError(f"Unsupported array dimensions ({data.ndim}D) in HDF5 file")
+
+            fig, ax = plt.subplots(figsize=(6, 6), dpi=dpi)
+            im = ax.imshow(data_2d.T, origin="lower", cmap=cmap, interpolation="nearest", aspect=aspect)
+
+            cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label(r"Permittivity $\epsilon$", fontsize=11, fontweight="bold")
+
+            ax.set_title(title or default_title, fontsize=12, fontweight="bold", pad=10)
+            ax.set_xlabel(xlabel, fontsize=10, fontweight="bold")
+            ax.set_ylabel(ylabel, fontsize=10, fontweight="bold")
+            fig.tight_layout()
+            ret_axes = ax
 
         if output_path is not None:
             save_file = Path(output_path).resolve()
@@ -329,7 +380,7 @@ def plot_epsilon(
         else:
             plt.close(fig)
 
-        return fig, ax
+        return fig, ret_axes
 
 
 def load_data_file(filepath: Path) -> Tuple[List[str], np.ndarray]:
