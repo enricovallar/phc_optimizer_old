@@ -1750,6 +1750,18 @@ class BayesianOptimizer:
                 valid_indices = [i for i, v in enumerate(is_valid_list) if v]
                 num_pruned = n_pts - len(valid_indices)
                 if valid_indices and num_pruned > 0:
+                    # If points were pruned from a closed cycle, rotate valid_indices
+                    # so that the curve is ordered continuously along the remaining open arc
+                    # rather than jumping across the pruned gap.
+                    gap_cut = None
+                    for k in range(len(valid_indices) - 1):
+                        if valid_indices[k + 1] > valid_indices[k] + 1:
+                            gap_cut = k + 1
+                            break
+                    if gap_cut is not None:
+                        valid_indices = valid_indices[gap_cut:] + valid_indices[:gap_cut]
+                    locus["is_closed"] = False
+
                     locus["r1"] = [r1_ref[i] for i in valid_indices]
                     locus["r2"] = [r2_ref[i] for i in valid_indices]
                     locus["residual_gap"] = [costs_ref[i] for i in valid_indices]
@@ -1881,6 +1893,7 @@ class BayesianOptimizer:
                         bs_params["display_group_velocity?"] = "false"
                         bs_params["only_gamma?"] = "false"
                         bs_params["delta_k_mode?"] = "false"
+                        bs_params[f"run-{pol}?"] = "true"
 
                         run_hpc(
                             script=self._get_script_path(),
@@ -1943,6 +1956,7 @@ class BayesianOptimizer:
                         vg_params["delta_k_mode?"] = "true"
                         vg_params["delta_k"] = delta_k
                         vg_params["delta-k"] = delta_k
+                        vg_params[f"run-{pol}?"] = "true"
 
                         run_hpc(
                             script=self._get_script_path(),
@@ -1977,7 +1991,15 @@ class BayesianOptimizer:
                             flat_recs = vg_data.get("flat_records", [])
                             target_vgs = []
                             for rec_v in flat_recs:
-                                if rec_v.get("parity", "").lower() == pol and int(rec_v.get("band", 0)) in target_bands:
+                                p_lower = rec_v.get("parity", "").lower()
+                                is_match = (
+                                    p_lower == pol
+                                    or (pol == "zeven" and p_lower == "te")
+                                    or (pol == "te" and p_lower == "zeven")
+                                    or (pol == "zodd" and p_lower == "tm")
+                                    or (pol == "tm" and p_lower == "zodd")
+                                )
+                                if is_match and int(rec_v.get("band", 0)) in target_bands:
                                     vx_val = float(rec_v.get("vx", 0.0))
                                     if np.isnan(vx_val):
                                         vx_val = float(rec_v.get("vg_mag", 0.0))
