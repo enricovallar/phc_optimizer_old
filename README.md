@@ -251,8 +251,10 @@ postprocessing:
   refinement:
     enabled: true                 # Fine-tune sampled points to exact degeneracy (residual gap < tolerance)
     tolerance: 1.0e-5             # Target residual gap tolerance floor (|Δω/ω0| < 1e-5)
-    max_steps: 6                  # Maximum Γ-only root-finding evaluations per point (typically 2-3)
+    max_steps: 10                 # Maximum Γ-only root-finding evaluations per point (typically 2-4)
     method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
+    exclude_unrefined: true       # Automatically prune boundary points that cannot achieve exact degeneracy
+    max_residual_gap: 1.0e-4      # Hard cutoff threshold for valid Dirac cone manifold point
 
   group_velocity:
     enabled: true                 # Calculate group velocity at each refined locus point in parallel

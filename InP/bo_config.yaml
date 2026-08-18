@@ -48,10 +48,10 @@ target:
 # Bayesian Optimizer & Surrogate Model Settings
 optimizer:
   iterations:
-    max_iterations: 0             # Total optimization generations (0 = initial exploration only)
+    max_iterations: 4             # Total optimization generations (0 = initial exploration only)
     batch_size: 24                # Evaluations per batch
-    initial_points: 144           # Total initial exploration points (e.g. 144 for 12x12 grid)
-    initial_sampling: "grid"      # Sampling method: "grid", "sobol", "lhs", "halton", "hammersly", "random"
+    initial_points: 240           # Total initial exploration points (e.g. 144 for 12x12 grid)
+    initial_sampling: "sobol"      # Sampling method: "grid", "sobol", "lhs", "halton", "hammersly", "random"
 
   surrogate:
     model: "GP"                   # Surrogate model: "GP", "RF", "ET", "GBRT"
@@ -74,7 +74,7 @@ optimizer:
 
 # Postprocessing: Degeneracy Loci Extraction & Analysis Pipeline
 postprocessing:
-  enabled: false                   # Enable postprocessing pipeline
+  enabled: true                   # Enable postprocessing pipeline
 
   # 1. Manifold Extraction & Skeletonization
   locus:
@@ -89,8 +89,10 @@ postprocessing:
   refinement:
     enabled: true                 # Fine-tune sampled points to exact Gamma degeneracy
     tolerance: 1.0e-5             # Target residual gap floor (|Δω/ω0| < 1e-5)
-    max_steps: 6                  # Max Gamma-only line search evaluations per point
+    max_steps: 10                 # Max Gamma-only line search evaluations per point
     method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
+    exclude_unrefined: true       # Exclude points that cannot achieve exact degeneracy
+    max_residual_gap: 1.0e-4      # Maximum allowable residual gap to consider a point valid Dirac cone
 
   # 3. Group Velocity Evaluation along Loci
   group_velocity:

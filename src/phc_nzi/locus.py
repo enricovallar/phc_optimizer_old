@@ -361,7 +361,7 @@ def compute_curve_normals(r1_pts: np.ndarray, r2_pts: np.ndarray) -> np.ndarray:
 def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -> None:
     """
     Saves extracted loci to a structured CSV file.
-    Includes group_velocity and residual_gap columns if present in locus records.
+    Includes group_velocity, residual_gap, and is_valid status columns if present in locus records.
     """
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -369,6 +369,7 @@ def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -
     has_vg = any("group_velocity" in l or "vg" in l for l in loci)
     has_gap = any("residual_gap" in l or "gaps" in l for l in loci)
     has_unrefined = any("r1_unrefined" in l for l in loci)
+    has_valid = any("is_valid" in l for l in loci)
 
     headers = ["locus_id", "point_index", "t_normalized", "r1", "r2"]
     if has_unrefined:
@@ -378,6 +379,8 @@ def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -
         headers.append("residual_gap")
     if has_vg:
         headers.append("group_velocity")
+    if has_valid:
+        headers.append("is_valid")
 
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -388,9 +391,10 @@ def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -
             r2_vals = locus["r2"]
             r1_unref = locus.get("r1_unrefined", [])
             r2_unref = locus.get("r2_unrefined", [])
-            fom_vals = locus["fom"]
+            fom_vals = locus.get("fom", [])
             gap_vals = locus.get("residual_gap") or locus.get("gaps") or []
             vg_vals = locus.get("group_velocity") or locus.get("vg") or []
+            valid_vals = locus.get("is_valid", [])
             n = len(r1_vals)
             for idx in range(n):
                 t = float(idx) / max(n - 1, 1)
@@ -400,7 +404,8 @@ def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -
                         row.extend([f"{r1_unref[idx]:.6f}", f"{r2_unref[idx]:.6f}"])
                     else:
                         row.extend(["nan", "nan"])
-                row.append(f"{fom_vals[idx]:.6e}")
+                fom_v = fom_vals[idx] if idx < len(fom_vals) else 0.0
+                row.append(f"{fom_v:.6e}")
                 if has_gap:
                     if idx < len(gap_vals) and gap_vals[idx] is not None:
                         row.append(f"{float(gap_vals[idx]):.6e}")
@@ -411,6 +416,11 @@ def export_loci_to_csv(loci: List[Dict[str, Any]], csv_path: Union[str, Path]) -
                         row.append(f"{float(vg_vals[idx]):.6f}")
                     else:
                         row.append("nan")
+                if has_valid:
+                    if idx < len(valid_vals):
+                        row.append(str(bool(valid_vals[idx])))
+                    else:
+                        row.append("True")
                 writer.writerow(row)
 
 

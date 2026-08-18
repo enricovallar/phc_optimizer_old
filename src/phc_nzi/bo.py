@@ -1466,7 +1466,7 @@ class BayesianOptimizer:
                 cur[p2_name] = float(np.clip(cur[p2_name], self.param_bounds[1][0], self.param_bounds[1][1]))
             return cur
 
-        # Step 0: Initial point delta = 0
+        # Step 0: Evaluate at delta = 0
         gap0, cost0, bands, _ = self._evaluate_point_gamma_gap(get_point_at(0.0), target_bands)
         best_p = get_point_at(0.0)
         best_cost = cost0
@@ -1475,37 +1475,55 @@ class BayesianOptimizer:
         if cost0 < tol:
             return best_p, gap0, cost0
 
-        # Step 1: Probe step delta_1
         step_mag = 0.002
-        delta1 = -step_mag if gap0 > 0 else step_mag
-        gap1, cost1, _, _ = self._evaluate_point_gamma_gap(get_point_at(delta1), target_bands)
+        delta_max = 0.035
 
-        if cost1 < best_cost:
-            best_p = get_point_at(delta1)
-            best_cost = cost1
-            best_gap = gap1
+        # Probe in positive direction
+        gap_pos, cost_pos, _, _ = self._evaluate_point_gamma_gap(get_point_at(step_mag), target_bands)
+        if cost_pos < best_cost:
+            best_p = get_point_at(step_mag)
+            best_cost = cost_pos
+            best_gap = gap_pos
+        if cost_pos < tol:
+            return best_p, gap_pos, cost_pos
 
-        if cost1 < tol:
-            return best_p, gap1, cost1
+        # Probe in negative direction if positive didn't improve or if we need a gradient
+        if cost_pos >= cost0 or cost_pos >= 0.99:
+            gap_neg, cost_neg, _, _ = self._evaluate_point_gamma_gap(get_point_at(-step_mag), target_bands)
+            if cost_neg < best_cost:
+                best_p = get_point_at(-step_mag)
+                best_cost = cost_neg
+                best_gap = gap_neg
+            if cost_neg < tol:
+                return best_p, gap_neg, cost_neg
+            deltas = [0.0, -step_mag]
+            gaps = [gap0, gap_neg]
+            costs = [cost0, cost_neg]
+        else:
+            deltas = [0.0, step_mag]
+            gaps = [gap0, gap_pos]
+            costs = [cost0, cost_pos]
 
-        # Secant iteration history
-        deltas = [0.0, delta1]
-        gaps = [gap0, gap1]
-        delta_max = 0.025
-
-        for step in range(2, max_steps):
+        max_iter = max(10, int(max_steps))
+        for step in range(2, max_iter):
             d_prev, d_curr = deltas[-2], deltas[-1]
             g_prev, g_curr = gaps[-2], gaps[-1]
+            c_curr = costs[-1]
 
-            denom = g_curr - g_prev
-            if abs(denom) < 1e-10:
-                d_next = d_curr + (step_mag * 0.5 if step % 2 == 0 else -step_mag * 0.5)
+            # If last step was invalid / disconnected (cost >= 0.99), bisect backwards
+            if c_curr >= 0.99:
+                d_next = 0.5 * (d_prev + d_curr)
             else:
-                d_next = d_curr - g_curr * (d_curr - d_prev) / denom
+                denom = g_curr - g_prev
+                if abs(denom) < 1e-10:
+                    d_next = d_curr + (step_mag * 0.5 if step % 2 == 0 else -step_mag * 0.5)
+                else:
+                    d_next = d_curr - g_curr * (d_curr - d_prev) / denom
 
             d_next = float(np.clip(d_next, -delta_max, delta_max))
 
-            if any(abs(d_next - d) < 1e-6 for d in deltas):
+            # Avoid repeated evaluation at same delta
+            if any(abs(d_next - d) < 1e-5 for d in deltas):
                 d_next = d_curr + (step_mag * 0.25 if g_curr > 0 else -step_mag * 0.25)
                 d_next = float(np.clip(d_next, -delta_max, delta_max))
 
@@ -1514,6 +1532,7 @@ class BayesianOptimizer:
 
             deltas.append(d_next)
             gaps.append(g_next)
+            costs.append(c_next)
 
             if c_next < best_cost:
                 best_p = pt_next
@@ -1535,9 +1554,12 @@ class BayesianOptimizer:
         from .locus import compute_curve_normals
 
         post_cfg = getattr(self, "post_cfg", {}) or {}
-        tol = float(post_cfg.get("degeneracy_tolerance", 1.0e-5))
-        max_steps = int(post_cfg.get("max_refine_steps", 6))
-        method = str(post_cfg.get("refine_method", "normal")).lower()
+        ref_cfg = post_cfg.get("refinement", {}) if isinstance(post_cfg.get("refinement"), dict) else {}
+        tol = float(ref_cfg.get("tolerance", post_cfg.get("degeneracy_tolerance", 1.0e-5)))
+        max_steps = int(ref_cfg.get("max_steps", post_cfg.get("max_refine_steps", 10)))
+        method = str(ref_cfg.get("method", post_cfg.get("refine_method", "normal"))).lower()
+        exclude_unref = bool(ref_cfg.get("exclude_unrefined", post_cfg.get("exclude_unrefined", True)))
+        max_residual_gap = float(ref_cfg.get("max_residual_gap", post_cfg.get("max_residual_gap", 1.0e-4)))
 
         worker_cand = (
             self.sim_cfg.get("parallel_workers")
@@ -1604,15 +1626,57 @@ class BayesianOptimizer:
                 gaps_ref[idx] = float(gap_val)
                 costs_ref[idx] = float(cost_val)
 
+            is_valid_list = []
+            validity_status_list = []
+            for idx in range(n_pts):
+                gap_v = costs_ref[idx]
+                if gap_v <= max_residual_gap:
+                    is_valid_list.append(True)
+                    validity_status_list.append(f"PASSED: Degeneracy achieved (gap = {gap_v:.2e} <= {max_residual_gap:.2e})")
+                else:
+                    is_valid_list.append(False)
+                    validity_status_list.append(f"FAILED: Residual gap ({gap_v:.2e}) exceeds tolerance limit ({max_residual_gap:.2e})")
+
             locus["r1"] = r1_ref
             locus["r2"] = r2_ref
             locus["residual_gap"] = costs_ref
             locus["gaps"] = gaps_ref
+            locus["is_valid"] = is_valid_list
+            locus["validity_status"] = validity_status_list
 
-            if verbose:
-                max_gap = max(costs_ref)
-                mean_gap = sum(costs_ref) / len(costs_ref)
-                print(f"  Locus #{l_id} refined: Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}")
+            if exclude_unref:
+                valid_indices = [i for i, v in enumerate(is_valid_list) if v]
+                num_pruned = n_pts - len(valid_indices)
+                if valid_indices and num_pruned > 0:
+                    locus["r1"] = [r1_ref[i] for i in valid_indices]
+                    locus["r2"] = [r2_ref[i] for i in valid_indices]
+                    locus["residual_gap"] = [costs_ref[i] for i in valid_indices]
+                    locus["gaps"] = [gaps_ref[i] for i in valid_indices]
+                    locus["is_valid"] = [is_valid_list[i] for i in valid_indices]
+                    locus["validity_status"] = [validity_status_list[i] for i in valid_indices]
+                    if "fom" in locus and len(locus["fom"]) == n_pts:
+                        locus["fom"] = [locus["fom"][i] for i in valid_indices]
+                    if "r1_unrefined" in locus and len(locus["r1_unrefined"]) == n_pts:
+                        locus["r1_unrefined"] = [locus["r1_unrefined"][i] for i in valid_indices]
+                    if "r2_unrefined" in locus and len(locus["r2_unrefined"]) == n_pts:
+                        locus["r2_unrefined"] = [locus["r2_unrefined"][i] for i in valid_indices]
+
+                if verbose:
+                    max_gap = max(locus["residual_gap"]) if locus["residual_gap"] else 0.0
+                    mean_gap = sum(locus["residual_gap"]) / max(len(locus["residual_gap"]), 1)
+                    if num_pruned > 0:
+                        print(
+                            f"  Locus #{l_id} refined: {len(locus['r1'])}/{n_pts} points valid "
+                            f"(pruned {num_pruned} unrefined boundary points). "
+                            f"Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}"
+                        )
+                    else:
+                        print(f"  Locus #{l_id} refined: Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}")
+            else:
+                if verbose:
+                    max_gap = max(costs_ref)
+                    mean_gap = sum(costs_ref) / len(costs_ref)
+                    print(f"  Locus #{l_id} refined: Max residual gap = {max_gap:.2e}, Mean = {mean_gap:.2e}")
 
         return loci
 
@@ -1812,6 +1876,8 @@ class BayesianOptimizer:
                     "predicted_fom": fom_val,
                     "residual_gap": gap_val,
                     "target_bands": target_bands,
+                    "is_valid": bool(locus.get("is_valid", [True] * n_pts)[pt_idx - 1]) if "is_valid" in locus and (pt_idx - 1) < len(locus["is_valid"]) else True,
+                    "validity_status": str(locus.get("validity_status", ["PASSED"] * n_pts)[pt_idx - 1]) if "validity_status" in locus and (pt_idx - 1) < len(locus["validity_status"]) else "PASSED",
                 }
                 if "r1_unrefined" in locus and (pt_idx - 1) < len(locus["r1_unrefined"]):
                     pt_info["unrefined_params"] = {

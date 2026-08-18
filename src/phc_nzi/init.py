@@ -100,8 +100,10 @@ postprocessing:
   refinement:
     enabled: true                 # Fine-tune sampled points to exact Gamma degeneracy
     tolerance: 1.0e-5             # Target residual gap floor (|Δω/ω0| < 1e-5)
-    max_steps: 6                  # Max Gamma-only line search evaluations per point
+    max_steps: 10                 # Max Gamma-only line search evaluations per point
     method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
+    exclude_unrefined: true       # Exclude points that cannot achieve exact degeneracy
+    max_residual_gap: 1.0e-4      # Maximum allowable residual gap to consider a point valid Dirac cone
 
   # 3. Group Velocity Evaluation along Loci
   group_velocity:
