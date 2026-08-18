@@ -23,7 +23,25 @@ from typing import Dict, List, Tuple, Optional, Any, Union
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import hydra
+from hydra.core.config_search_path import ConfigSearchPath
+from hydra.plugins.search_path_plugin import SearchPathPlugin
+from hydra.core.plugins import Plugins
 from omegaconf import DictConfig, OmegaConf
+
+class CwdConfigSearchPathPlugin(SearchPathPlugin):
+    """
+    Hydra plugin that automatically prepends the local ./configs directory of the
+    current working directory to Hydra's search path when present.
+    """
+    def manipulate_search_path(self, search_path: ConfigSearchPath) -> None:
+        cwd_configs = Path.cwd() / "configs"
+        if cwd_configs.is_dir():
+            search_path.prepend(
+                provider="phc_cwd",
+                path=f"file://{cwd_configs.resolve()}",
+            )
+
+Plugins.instance().register(CwdConfigSearchPathPlugin)
 
 from skopt import Optimizer
 from skopt.space import Real, Integer
