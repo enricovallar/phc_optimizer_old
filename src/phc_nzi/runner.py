@@ -155,7 +155,8 @@ def run_hpc(
                 data_path=output_dir,
                 output_path=output_dir / "band_structure.png",
                 highlight_gaps=False,
-                style="light"
+                style="light",
+                verbose=verbose,
             )
 
             # 2. Auto-plot dielectric epsilon grid if .h5 file exists
@@ -164,11 +165,13 @@ def run_hpc(
                     plot_epsilon(
                         h5_path=h5_candidate,
                         output_path=output_dir / "epsilon_map.png",
-                        rectify=True
+                        rectify=True,
+                        verbose=verbose,
                     )
                     break
         except Exception as e:
-            print(f"Note: Automatic plot generation notice: {e}")
+            if verbose:
+                print(f"Note: Automatic plot generation notice: {e}")
 
     return result
 

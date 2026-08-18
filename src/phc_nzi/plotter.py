@@ -25,6 +25,7 @@ def plot_band_structure(
     ylim: Optional[Tuple[float, float]] = None,
     bands: Optional[List[int]] = None,
     polarization: Optional[str] = None,
+    verbose: bool = False,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot photonic band structure dispersion curves from .data files.
@@ -227,7 +228,8 @@ def plot_band_structure(
             save_file = Path(output_path).resolve()
             save_file.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(save_file, dpi=dpi, bbox_inches="tight")
-            print(f"Saved band structure plot to '{save_file}'")
+            if verbose:
+                print(f"Saved band structure plot to '{save_file}'")
 
         if show:
             plt.show()
@@ -247,6 +249,7 @@ def plot_epsilon(
     title: str = "Dielectric Function Grid (Epsilon)",
     show: bool = False,
     dpi: int = 300,
+    verbose: bool = False,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot 2D dielectric epsilon cross-section map from an HDF5 grid file.
@@ -269,6 +272,8 @@ def plot_epsilon(
         Plot title.
     show : bool, default False
         Whether to call plt.show().
+    verbose : bool, default False
+        Whether to print status messages.
 
     Returns:
     --------
@@ -281,9 +286,10 @@ def plot_epsilon(
     if rectify and not h5_file.name.endswith(".converted.h5"):
         try:
             from .transformer import transform_h5_data, MPBDataOptions
-            h5_file = transform_h5_data(h5_file, options=options or MPBDataOptions())
+            h5_file = transform_h5_data(h5_file, options=options or MPBDataOptions(), verbose=verbose)
         except Exception as e:
-            print(f"Note: Grid transformation fallback: {e}")
+            if verbose:
+                print(f"Note: Grid transformation fallback: {e}")
 
     with h5py.File(h5_file, "r") as f:
         key = "data" if "data" in f else ("epsilon.xx" if "epsilon.xx" in f else list(f.keys())[0])
@@ -315,7 +321,8 @@ def plot_epsilon(
             save_file = Path(output_path).resolve()
             save_file.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(save_file, dpi=dpi, bbox_inches="tight")
-            print(f"Saved dielectric epsilon plot to '{save_file}'")
+            if verbose:
+                print(f"Saved dielectric epsilon plot to '{save_file}'")
 
         if show:
             plt.show()

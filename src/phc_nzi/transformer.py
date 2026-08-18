@@ -140,6 +140,7 @@ def transform_h5_data(
     h5_path: Union[str, os.PathLike],
     output_path: Optional[Union[str, os.PathLike]] = None,
     options: Optional[MPBDataOptions] = None,
+    verbose: bool = False,
 ) -> Path:
     """
     Transform MPB HDF5 dataset (epsilon grid, E/H fields) using MPBDataConverter.
@@ -152,6 +153,8 @@ def transform_h5_data(
         Target path for converted output HDF5 file. Defaults to <name>.converted.h5.
     options : MPBDataOptions, optional
         MPBDataOptions configuration. Defaults to MPBDataOptions(rectify=True, periods=(3, 3, 1)).
+    verbose : bool, default False
+        Whether to print status messages.
 
     Returns:
     --------
@@ -170,7 +173,8 @@ def transform_h5_data(
     converter = MPBDataConverter(input_file, target_file, opts)
     converter.run_conversion()
 
-    print(f"Transformed MPB HDF5 data saved to '{target_file}'")
+    if verbose:
+        print(f"Transformed MPB HDF5 data saved to '{target_file}'")
     return target_file
 
 

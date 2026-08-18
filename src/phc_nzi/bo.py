@@ -1730,6 +1730,7 @@ class BayesianOptimizer:
                         polarization=pol,
                         highlight_gaps=False,
                         style="light",
+                        verbose=False,
                     )
                     for h5_candidate in list(bs_dir.glob("*-epsilon.h5")):
                         if not h5_candidate.name.endswith(".converted.h5"):
@@ -1737,6 +1738,7 @@ class BayesianOptimizer:
                                 h5_path=h5_candidate,
                                 output_path=bs_dir / "epsilon_map.png",
                                 rectify=True,
+                                verbose=False,
                             )
                             break
                 except Exception:
