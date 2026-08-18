@@ -28,6 +28,7 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (define-param num-bands 12)
 
 ; Material definitions (InP dielectric slab in air)
+(define InP (make dielectric (epsilon 10.0489)))
 (define matrix-mat InP)
 (define atom-mat air)
 
