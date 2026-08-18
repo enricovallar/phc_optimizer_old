@@ -868,7 +868,7 @@ class BayesianOptimizer:
 
         best_idx = int(np.argmin(self.optimizer.yi))
         best_params = dict(zip(self.param_names, [float(x) for x in self.optimizer.Xi[best_idx]]))
-        best_record = self.records[best_idx] if best_idx < len(self.records) else {}
+        best_record = min(self.records, key=lambda r: r.get("raw_cost", float("inf"))) if self.records else {}
 
         print("==================================================================")
         print("Optimization Complete!")
@@ -1123,13 +1123,19 @@ class BayesianOptimizer:
             Xi = np.array(self.optimizer.Xi)
             yi = np.array(self.optimizer.yi)
 
-            # Map raw cost values to original physical scale
+            # Build fast lookup dictionary for evaluated records by parameter coordinates
+            rec_map = {}
+            for r in self.records:
+                if "params" in r and "raw_cost" in r:
+                    key = tuple(round(float(r["params"].get(k, 0.0)), 6) for k in self.param_names)
+                    rec_map[key] = float(r["raw_cost"])
+
+            # Map raw cost values to original physical scale matching each Xi point coordinates
             raw_costs_list = []
-            for idx in range(len(Xi)):
-                rec = self.records[idx] if idx < len(self.records) else {}
-                raw_c = rec.get("raw_cost")
-                if raw_c is not None and not np.isnan(raw_c):
-                    raw_costs_list.append(float(raw_c))
+            for idx, x_pt in enumerate(Xi):
+                key = tuple(round(float(v), 6) for v in x_pt)
+                if key in rec_map and not np.isnan(rec_map[key]):
+                    raw_costs_list.append(rec_map[key])
                 elif mode == "log":
                     raw_costs_list.append(10 ** float(yi[idx]))
                 else:
