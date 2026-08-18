@@ -1,0 +1,11 @@
+# 3D Photonic Crystal Slab Geometry Parameters
+search:
+  r1: [0.2, 0.4]                 # Primary cylinder radius r1
+  r2: [0.2, 0.4]                 # Secondary cylinder radius r2
+
+fixed:
+  resolution: 25                 # In-plane xy grid resolution
+  res-z: 16                      # Grid resolution in z-direction
+  sz: 4                          # Supercell height in z-direction (3D membrane)
+  h: 0.5                         # Slab thickness
+  num-bands: 12                  # Total bands calculated

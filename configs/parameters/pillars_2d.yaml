@@ -1,0 +1,10 @@
+# 2D Photonic Crystal Geometry Parameters (No z-dimension)
+search:
+  r1: [0.2, 0.4]                 # Primary cylinder radius r1
+  r2: [0.2, 0.4]                 # Secondary cylinder radius r2
+
+fixed:
+  resolution: 32                 # In-plane xy grid resolution
+  sz: "no-size"                  # 2D crystal mode
+  h: 0.5                         # Height parameter
+  num-bands: 8                   # Total bands calculated (bands 4, 5, 6 for 2D Dirac cone)
