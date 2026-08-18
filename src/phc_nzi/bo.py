@@ -1132,10 +1132,10 @@ class BayesianOptimizer:
         import matplotlib.gridspec as gridspec
         from matplotlib.ticker import FormatStrFormatter, LogFormatterSciNotation, LogLocator
 
-        if not hasattr(self.optimizer, "models") or not self.optimizer.models:
+        if not hasattr(self.optimizer, "Xi") or len(self.optimizer.Xi) == 0:
             return
 
-        model = self.optimizer.models[-1]
+        model = self.optimizer.models[-1] if (hasattr(self.optimizer, "models") and self.optimizer.models) else None
         surrogate_file = self.output_dir / "bo_surrogate_map.png"
 
         if len(self.param_names) == 2:
