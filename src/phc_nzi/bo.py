@@ -459,6 +459,8 @@ class BayesianOptimizer:
         param_dict = dict(zip(self.param_names, param_values))
         combined_params = {**self.fixed_params, **param_dict}
         combined_params["display_symmetry?"] = "true"
+        pol = self.target_cfg.get("polarization", "te").lower()
+        combined_params[f"run-{pol}?"] = "true"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             t_run1_0 = time.perf_counter()
@@ -571,6 +573,18 @@ class BayesianOptimizer:
                 corrections = []
 
             pol_key = f"{pol}freqs"
+            if pol_key not in extracted_data or "headers" not in extracted_data[pol_key]:
+                # Fallback for 2D vs 3D parity aliases (zeven <-> te, zodd <-> tm)
+                alias_map = {
+                    "zeven": "te",
+                    "zodd": "tm",
+                    "te": "zeven",
+                    "tm": "zodd",
+                }
+                alt_pol = alias_map.get(pol)
+                if alt_pol and f"{alt_pol}freqs" in extracted_data and "headers" in extracted_data[f"{alt_pol}freqs"]:
+                    pol_key = f"{alt_pol}freqs"
+
             if pol_key not in extracted_data or "headers" not in extracted_data[pol_key]:
                 t_total = time.perf_counter() - t_start
                 timing_dict = {"t_geom": t_geom, "t_run1": t_run1, "t_run2": 0.0, "t_total": t_total}
@@ -2030,6 +2044,8 @@ class BayesianOptimizer:
         print("\nExecuting final validation simulation across FULL k-path with optimal parameters...")
         combined = {**self.fixed_params, **best_params}
         combined["display_symmetry?"] = "true"
+        pol = self.target_cfg.get("polarization", "te").lower()
+        combined[f"run-{pol}?"] = "true"
 
         script_path = self._get_script_path()
 

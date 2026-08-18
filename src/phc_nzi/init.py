@@ -65,7 +65,17 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (if (or delta-k-mode? delta_k_mode?)
     (set! k-points (list (vector3 delta-k 0 0))))
 
-; Solver callbacks
+; Solver callbacks with auto-detection for 2D vs 3D slabs
+(if (and (not run-te?) (not run-tm?) (not run-zeven?) (not run-zodd?))
+    (if (and (defined? 'sz) (number? sz))
+        (set! run-zeven? true)
+        (set! run-te? true)))
+
+(if (and (defined? 'sz) (not (number? sz)) run-zeven?)
+    (begin (set! run-te? true) (set! run-zeven? false)))
+(if (and (defined? 'sz) (not (number? sz)) run-zodd?)
+    (begin (set! run-tm? true) (set! run-zodd? false)))
+
 (if run-te? (run-solver-with-callbacks run-te))
 (if run-tm? (run-solver-with-callbacks run-tm))
 (if run-zeven? (run-solver-with-callbacks run-zeven))
