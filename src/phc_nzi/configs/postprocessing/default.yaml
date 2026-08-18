@@ -1,0 +1,35 @@
+# Postprocessing: Degeneracy Loci Extraction & Analysis Pipeline
+enabled: true                   # Enable postprocessing pipeline
+
+# 1. Manifold Extraction & Skeletonization
+locus:
+  threshold_percentile: 60.0    # Percentile cutoff to isolate high-FOM ridge (e.g. top 40%)
+  min_locus_area_px: 20         # Minimum connected component size in pixels
+  max_loci: 1                   # Maximum number of disjoint loci to extract
+  smoothness: 0.001             # B-spline smoothing regularization factor
+  spline_degree: 3              # Degree of B-spline (k=3 for cubic spline)
+  sample_points: 40             # Number of evaluation points sampled along the curve
+
+# 2. Degeneracy Fine-Tuning (Gamma-only normal line search)
+refinement:
+  enabled: true                 # Fine-tune sampled points to exact Gamma degeneracy
+  tolerance: 1.0e-5             # Target residual gap floor (|Δω/ω0| < 1e-5)
+  max_steps: 5                  # Max Gamma-only line search evaluations per point
+  method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
+  exclude_unrefined: true       # Exclude points that cannot achieve exact degeneracy
+  max_residual_gap: 5.0e-4      # Maximum allowable residual gap to consider a point valid Dirac cone
+
+# 3. Group Velocity Evaluation along Loci
+group_velocity:
+  enabled: true                 # Compute target-band group velocities along the locus in parallel
+  delta_k: 0.001                # Offset from Gamma for vg calculation
+
+# 4. Full k-path Band Diagram Simulations along Loci
+band_diagram:
+  enabled: true                 # Full k-path band structure calculations along the locus
+
+# 5. Output & Visualization
+output:
+  export_csv: true              # Export bo_locus.csv inside each locus folder
+  plot_overlay: true            # Overlay GP surrogate and refined loci on bo_surrogate_map.png
+  plot_profiles: true           # Generate 3-panel bo_locus_profile.png

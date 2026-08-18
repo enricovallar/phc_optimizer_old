@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 from skopt import Optimizer
 from skopt.space import Real, Integer
@@ -57,10 +59,13 @@ def validate_and_normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     config["simulation"] = sim
 
     # 2. Parameters & Fixed Parameters
-    params = config.get("parameters", {})
-    if not params:
+    params_raw = config.get("parameters", {})
+    if isinstance(params_raw, dict) and "search" in params_raw:
+        config["parameters"] = params_raw["search"]
+        if "fixed" in params_raw:
+            config["fixed_parameters"] = {**params_raw["fixed"], **config.get("fixed_parameters", {})}
+    elif not params_raw:
         raise ValueError("No optimization parameters defined under 'parameters' in config file.")
-    config["parameters"] = params
     config.setdefault("fixed_parameters", {})
 
     # 3. Target physics & symmetry specifications
@@ -2179,60 +2184,22 @@ def run_bo(config_path: Union[str, os.PathLike], work_dir: Optional[Union[str, o
     return opt.run()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Run Bayesian Optimization for Photonic Crystal NZI / Dirac Cone Search."
-    )
-    parser.add_argument(
-        "--config",
-        "-c",
-        type=str,
-        default="bo_config.yaml",
-        help="Path to optimization YAML/JSON config file (default: bo_config.yaml)",
-    )
-    parser.add_argument(
-        "--dir",
-        "-d",
-        type=str,
-        default=None,
-        help="Target working directory (overrides config work_dir)",
-    )
-    parser.add_argument(
-        "--plot",
-        "-p",
-        action="store_true",
-        help="Only re-plot previous simulation data and surrogate map without running simulations.",
-    )
-    parser.add_argument(
-        "--postprocess",
-        "--postprocess-only",
-        action="store_true",
-        help="Run only the postprocessing pipeline (loci extraction, refinement line search, and per-point simulations) on existing optimization output.",
-    )
+@hydra.main(config_path="configs", config_name="config", version_base="1.3")
+def main(cfg: DictConfig) -> None:
+    """
+    Run Photonic Crystal Bayesian Optimization & Postprocessing with Hydra.
+    """
+    raw_dict = OmegaConf.to_container(cfg, resolve=True)
+    general_cfg = raw_dict.get("general", {})
 
-    args = parser.parse_args()
+    opt = BayesianOptimizer(raw_dict)
 
-    config_path = args.config
-    if not Path(config_path).is_file():
-        # Check in ctl directory if not found in cwd
-        alt_path = Path("ctl") / config_path
-        if alt_path.is_file():
-            config_path = str(alt_path)
-
-    if args.postprocess:
-        config = load_bo_config(config_path)
-        if args.dir:
-            config["simulation"]["work_dir"] = str(args.dir)
-        opt = BayesianOptimizer(config)
+    if general_cfg.get("postprocess_only", False) or general_cfg.get("postprocess", False):
         opt.postprocess_only()
-    elif args.plot:
-        config = load_bo_config(config_path)
-        if args.dir:
-            config["simulation"]["work_dir"] = str(args.dir)
-        opt = BayesianOptimizer(config)
+    elif general_cfg.get("plot_only", False) or general_cfg.get("plot", False):
         opt.plot_only()
     else:
-        run_bo(config_path=config_path, work_dir=args.dir)
+        opt.run()
 
 
 if __name__ == "__main__":

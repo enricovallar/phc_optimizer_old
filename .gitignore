@@ -9,3 +9,6 @@ __pycache__/
 *.json
 output/
 bo_output/
+.hydra/
+multirun/
+*.log

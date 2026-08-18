@@ -2,123 +2,13 @@
 Project Directory Initializer for Photonic Crystal MPB Simulations & Bayesian Optimization
 """
 
-import os
-import sys
+import shutil
 import argparse
 from pathlib import Path
 from typing import Union, Tuple
 
-BO_CONFIG_TEMPLATE = """# ==============================================================================
-# Photonic Crystal NZI & Dirac-like Cone Bayesian Optimization Configuration
-# ==============================================================================
-
-# Simulation environment and HPC execution settings
-simulation:
-  ctl_script: "main.ctl"          # MPB control script file to execute (in work_dir)
-  work_dir: "."                   # Working directory containing ctl_script
-  output_dir: "bo_output"         # Subfolder created inside work_dir for outputs
-  cores: 4                        # Number of MPI cores per evaluation worker
-  parallel_workers: 4             # Number of concurrent parallel simulation workers
-  only_gamma: true                # Evaluate ONLY the Gamma point (k=0) during BO for speedup
-  debug_timing: true              # Detailed timing breakdown logs & reports
-
-# Optimization parameters (continuous search bounds: [min, max] in lattice units a)
-parameters:
-  r1: [0.15, 0.35]                # Primary cylinder radius r1
-  r2: [0.15, 0.35]                # Secondary cylinder radius r2
-
-# Fixed geometry and simulation parameters passed to MPB
-fixed_parameters:
-  resolution: 64                 # Grid resolution per unit cell length a
-  num-bands: 12                  # Total bands calculated (keep >= 10 for high-order irreps)
-  h: 0.5                         # Slab thickness (in unit cell length a)
-
-# Target physical dispersion & symmetry specifications
-target:
-  symmetry:
-    group: "C4v"                  # Point group symmetry: "C4v" (square) or "C6v" (triangular)
-    polarization: "te"             # Polarization parity: "te" (Hz-odd/Ez-even) or "tm" (Ez-odd/Hz-even)
-    target_irreps: ["A_1", "E_1", "E_1"] # Target irrep multiplet forming Dirac cone (e.g. A1 + E1)
-    irrep_occurrences: [1, 1, 1]  # Target occurrence order of irreps
-    min_band: 2                   # Lowest band index to inspect (excludes Band 1 acoustic mode)
-    degeneracy_tol: 0.005         # Frequency threshold (delta_omega) to trigger failsafe relabeling
-    target_cost: 0.0025           # Active learning target cost floor
-    bypass_irrep_identification: false # Set true to target mode_indices directly
-    mode_indices: [2, 3, 4]       # Explicit band indices (when bypassing irrep detection)
-
-  connectivity:
-    enabled: true                 # Invalidate disconnected matrix slab geometries
-    epsilon_threshold: 1.1        # Permittivity threshold for matrix slab
-    min_neck_width_px: 4          # Reject connections narrower than 4 grid pixels wide
-
-  group_velocity:
-    enabled: true                 # Compute group velocity during BO iterations
-    delta_k: 0.01                 # Offset from Gamma for group velocity calculation
-    optimal_only: true            # Only compute vg for purple/low-cost optimal points
-
-# Bayesian Optimizer & Surrogate Model Settings
-optimizer:
-  iterations:
-    max_iterations: 15            # Guided BO generations after initial sampling
-    batch_size: 4                 # Candidates evaluated concurrently per generation
-    initial_points: 16            # Total initial sampling points
-    initial_sampling: "sobol"     # Initial sampling method: "sobol", "grid", "lhs", "halton", "hammersly", "random"
-
-  surrogate:
-    model: "GP"                   # Surrogate model: "GP", "RF", "ET", "GBRT"
-    objective_mode: "log"         # Cost metric mode: "log" (log10 cost) or "linear"
-    strategy: "cl_min"            # Constant liar batch strategy: "cl_min", "cl_mean", "cl_max"
-    random_state: 42              # Random seed for reproducibility
-
-  acquisition:
-    acq_func: "LCB"               # Acquisition function ("LCB", "EI", "PI", "gp_hedge")
-    acq_func_kwargs:
-      kappa: 3.5                  # Exploration parameter kappa for LCB
-    optimizer: "sampling"         # Acquisition optimizer ("sampling" or "lbfgs")
-    n_points: 500                 # Sampling candidates for acquisition maximization
-    n_restarts: 1                 # Restarts for acquisition optimizer
-
-  visualization:
-    save_surrogate_freq: 1        # Save bo_surrogate_map.png every N generations (0 = only at end)
-    neglect_sigma: false          # Neglect posterior uncertainty sigma in surrogate map
-    colorbar_limits: [1, 1e3]     # FOM colorbar scale limits
-
-# Postprocessing: Degeneracy Loci Extraction & Analysis Pipeline
-postprocessing:
-  enabled: true                   # Enable postprocessing pipeline
-
-  # 1. Manifold Extraction & Skeletonization
-  locus:
-    threshold_percentile: 70.0    # Percentile cutoff to isolate high-FOM ridge (e.g. top 30%)
-    min_locus_area_px: 25         # Minimum connected component size in pixels
-    max_loci: 1                   # Maximum number of disjoint loci to extract
-    smoothness: 0.001             # B-spline smoothing regularization factor
-    spline_degree: 3              # Degree of B-spline (k=3 for cubic spline)
-    sample_points: 20             # Number of evaluation points sampled along the curve
-
-  # 2. Degeneracy Fine-Tuning (Gamma-only normal line search)
-  refinement:
-    enabled: true                 # Fine-tune sampled points to exact Gamma degeneracy
-    tolerance: 1.0e-5             # Target residual gap floor (|Δω/ω0| < 1e-5)
-    max_steps: 10                 # Max Gamma-only line search evaluations per point
-    method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
-    exclude_unrefined: true       # Exclude points that cannot achieve exact degeneracy
-    max_residual_gap: 1.0e-4      # Maximum allowable residual gap to consider a point valid Dirac cone
-
-  # 3. Group Velocity Evaluation along Loci
-  group_velocity:
-    enabled: true                 # Compute target-band group velocities along the locus in parallel
-    delta_k: 0.01                 # Offset from Gamma for vg calculation
-
-  # 4. Output & Visualization
-  output:
-    export_csv: true              # Export bo_locus.csv inside each locus folder
-    plot_overlay: true            # Overlay GP surrogate and refined loci on bo_surrogate_map.png
-    plot_profiles: true           # Generate 3-panel bo_locus_profile.png
-"""
-
 MAIN_CTL_TEMPLATE = """; ==============================================================================
-; MPB Control File: Modular Photonic Crystal Simulation
+; MPB Control File: Modular 3D Photonic Crystal Slab Membrane Simulation
 ; ==============================================================================
 
 (load-module "materials.ctl")
@@ -128,21 +18,23 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (load-module "custom_nonbloch_output.ctl")
 (load-module "lattices.ctl")
 
-; Geometric parameters (overridden by command line / BO runner)
+; Geometric and computational parameters (passed via CLI from BO optimizer)
 (define-param h 0.5)
 (define-param r1 0.25)
-(define-param r2 0.15)
-(define-param resolution 64)
+(define-param r2 0.25)
+(define-param sz 4)
+(define-param resolution 25)
+(define-param res-z 16)
 (define-param num-bands 12)
 
-; Material definitions
-(define matrix-mat (make dielectric (epsilon 12.0)))
-(define atom-mat (make dielectric (epsilon 1.0)))
+; Material definitions (InP dielectric slab in air)
+(define matrix-mat InP)
+(define atom-mat air)
 
-; Lattice geometry (C4v square lattice or C6v triangular lattice)
-(set! geometry-lattice (make-square-lattice no-size))
+; Lattice geometry: C4v square lattice with supercell height sz
+(set! geometry-lattice (make-square-lattice sz))
 
-; Background slab and parametric Wyckoff cylinder shapes
+; Slab geometry and Wyckoff cylinder air-holes
 (define background-slab
   (make block (size (vector3 1e20 1e20 h))
               (center (vector3 0 0 0))
@@ -167,8 +59,8 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (if (or only-gamma? only_gamma?)
     (set! k-points (list (vector3 0 0 0))))
 
-(define-param delta-k 0.01)
-; Override k-points for small delta-k group velocity run
+(define-param delta-k 0.001)
+; Override k-points for small delta-k group velocity evaluation
 (if (or delta-k-mode? delta_k_mode?)
     (set! k-points (list (vector3 delta-k 0 0))))
 
@@ -181,19 +73,24 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 
 def init_folder(target_dir: Union[str, Path] = ".") -> Tuple[Path, Path]:
     """
-    Initializes a target directory with fully documented bo_config.yaml and main.ctl template files.
+    Initializes a target directory with the modular Hydra configs/ hierarchy and main.ctl template.
     """
     target_path = Path(target_dir).resolve()
     target_path.mkdir(parents=True, exist_ok=True)
 
-    yaml_file = target_path / "bo_config.yaml"
+    dest_configs = target_path / "configs"
     ctl_file = target_path / "main.ctl"
 
-    if not yaml_file.exists():
-        yaml_file.write_text(BO_CONFIG_TEMPLATE)
-        print(f"Created configuration file: '{yaml_file}'")
-    else:
-        print(f"Configuration file already exists: '{yaml_file}'")
+    # Find source configs directory (in package src or repo root)
+    src_configs = Path(__file__).parent / "configs"
+    if not src_configs.is_dir():
+        src_configs = Path(__file__).parents[2] / "configs"
+
+    if not dest_configs.exists() and src_configs.is_dir():
+        shutil.copytree(str(src_configs), str(dest_configs))
+        print(f"Created modular Hydra configuration directory: '{dest_configs}'")
+    elif dest_configs.exists():
+        print(f"Configuration directory already exists: '{dest_configs}'")
 
     if not ctl_file.exists():
         ctl_file.write_text(MAIN_CTL_TEMPLATE)
@@ -201,11 +98,11 @@ def init_folder(target_dir: Union[str, Path] = ".") -> Tuple[Path, Path]:
     else:
         print(f"MPB control script already exists: '{ctl_file}'")
 
-    return yaml_file, ctl_file
+    return dest_configs, ctl_file
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Initialize a directory with fully documented bo_config.yaml and main.ctl templates."
+        description="Initialize a directory with modular Hydra configs/ and main.ctl template."
     )
     parser.add_argument(
         "directory",
@@ -224,16 +121,28 @@ def main():
     target_dir = args.dir_opt or args.directory
 
     print("==================================================================")
-    print("Initializing Photonic Crystal Simulation Directory")
+    print("Initializing Photonic Crystal Simulation Workspace")
     print(f"Target Directory: '{target_dir}'")
     print("==================================================================")
 
-    yaml_file, ctl_file = init_folder(target_dir)
+    configs_dir, ctl_file = init_folder(target_dir)
 
     print("\nInitialization Complete!")
-    print("You can now edit the generated config and control files, then run:")
-    print(f"  uv run phc-runner --dir {target_dir}")
-    print(f"  uv run phc-bo --config {yaml_file} --dir {target_dir}")
+    print("Project Workspace Structure:")
+    print(f"  {target_dir}/")
+    print(f"  ├── main.ctl")
+    print(f"  └── configs/")
+    print(f"      ├── config.yaml")
+    print(f"      ├── simulation/default.yaml")
+    print(f"      ├── parameters/default.yaml")
+    print(f"      ├── target/accidental_dirac.yaml")
+    print(f"      ├── optimizer/bayesian.yaml")
+    print(f"      └── postprocessing/default.yaml")
+    print("\nYou can now run:")
+    print(f"  cd {target_dir}")
+    print(f"  uv run phc-bo")
+    print(f"  uv run phc-bo parameters.fixed.h=0.35 simulation.parallel_workers=28")
+    print(f"  uv run phc-bo -m parameters.fixed.h=0.30,0.35,0.40,0.45,0.50")
     print("==================================================================")
 
 if __name__ == "__main__":

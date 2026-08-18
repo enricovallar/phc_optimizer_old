@@ -1,0 +1,27 @@
+# ==============================================================================
+# Master Photonic Crystal Bayesian Optimization Configuration (Hydra)
+# ==============================================================================
+
+defaults:
+  - simulation: default
+  - parameters: default
+  - target: accidental_dirac
+  - optimizer: bayesian
+  - postprocessing: default
+  - _self_
+
+general:
+  name: "InP_3D_Slab_Accidental_Dirac"
+  output_dir: "bo_output"
+  log_level: "INFO"
+  clean_output: false
+  postprocess_only: false
+
+hydra:
+  run:
+    dir: .
+  sweep:
+    dir: multirun/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: false

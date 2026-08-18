@@ -1,0 +1,8 @@
+# Simulation environment and HPC execution settings
+ctl_script: "main.ctl"          # MPB control script file in work directory
+work_dir: "."                   # Root directory for MPB run
+output_dir: "bo_output"         # Output directory for optimization results
+cores: 1                        # Cores per MPB simulation
+parallel_workers: 28            # Number of concurrent parallel simulation workers
+only_gamma: true                # Fast Gamma-only mode during BO iterations
+debug_timing: true              # Detailed timing breakdown logs & reports

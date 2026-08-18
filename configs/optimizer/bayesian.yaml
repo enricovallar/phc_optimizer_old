@@ -1,0 +1,25 @@
+# Bayesian Optimizer & Surrogate Model Settings
+iterations:
+  max_iterations: 5             # Total optimization generations (0 = initial exploration only)
+  batch_size: 28                # Evaluations per batch (matches 28 parallel workers)
+  initial_points: 280           # Total initial exploration points (e.g. 10 batches of 28)
+  initial_sampling: "sobol"      # Sampling method: "grid", "sobol", "lhs", "halton", "hammersly", "random"
+
+surrogate:
+  model: "GP"                   # Surrogate model: "GP", "RF", "ET", "GBRT"
+  objective_mode: "log"         # Cost scale: "log" (log10 cost) or "linear"
+  strategy: "cl_min"            # Constant liar strategy for batch parallelization
+  random_state: 42              # Random seed for reproducibility
+
+acquisition:
+  acq_func: "LCB"               # Acquisition function ("LCB", "EI", "PI", "gp_hedge")
+  acq_func_kwargs:
+    kappa: 3.0                  # Exploration parameter kappa for LCB (tight focus on ridge)
+  optimizer: "sampling"         # Acquisition optimizer ("sampling" or "lbfgs")
+  n_points: 500                 # Sampling candidates for acquisition maximization
+  n_restarts: 1                 # Restarts for acquisition optimizer
+
+visualization:
+  save_surrogate_freq: 1        # Update bo_surrogate_map.png every N generations
+  neglect_sigma: false          # Neglect posterior uncertainty sigma in surrogate map
+  colorbar_limits: [1, 1e3]     # FOM colorbar scale limits

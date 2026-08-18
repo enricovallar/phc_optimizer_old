@@ -157,144 +157,59 @@ When `--group-velocity` (or `display-group-velocity?=true`) is enabled, the runn
 
 ---
 
-## Bayesian Optimization (`phc-bo`) for Dirac Cone Search
+## Bayesian Optimization (`phc-bo`) for Dirac Cone Search (Hydra Powered)
 
-Find geometric parameters that minimize the frequency gap between target symmetry representations (e.g., $A_2 + E$) at the $\Gamma$ point using Gaussian Process surrogate modeling.
+Find geometric parameters that minimize the frequency gap between target symmetry representations (e.g., $A_2 + E$) at the $\Gamma$ point using Gaussian Process surrogate modeling and Hydra modular configuration.
 
-### CLI Usage
-
-```bash
-# Run Bayesian Optimization with default config (ctl/bo_config.yaml):
-uv run phc-bo --config ctl/bo_config.yaml --dir work
-```
-
-### Optimization Configuration (`bo_config.yaml`)
-
-```yaml
-# Simulation environment and execution settings
-simulation:
-  ctl_script: "main.ctl"
-  work_dir: "work"
-  output_dir: "bo_output"
-  cores: 4
-  parallel_workers: 4
-  only_gamma: true                 # Evaluate ONLY Gamma point during BO iterations (10x-50x speedup!)
-  debug_timing: true
-
-parameters:
-  r1: [0.15, 0.35]                 # Continuous bounds for r1
-  r2: [0.15, 0.35]                 # Continuous bounds for r2
-
-fixed_parameters:
-  resolution: 64
-  num-bands: 12
-  h: 0.5
-
-target:
-  symmetry:
-    group: "C4v"                  # Point group ("C4v" or "C6v")
-    polarization: "te"             # Polarization ("te" or "tm")
-    target_irreps: ["A_2", "E", "E"] # Irrep multiplet to form Dirac cone
-    irrep_occurrences: [1, 1, 1]
-    min_band: 2
-    degeneracy_tol: 0.005          # Degeneracy failsafe threshold for mode mixing
-    target_cost: 0.0025            # Active learning cost threshold floor
-    bypass_irrep_identification: false
-    mode_indices: [2, 3, 4]       # Explicit band indices (when bypassing irrep detection)
-
-  connectivity:
-    enabled: true                 # Invalidate disconnected matrix slab geometries
-    epsilon_threshold: 1.1        # Dielectric threshold to identify matrix slab
-    min_neck_width_px: 4          # Reject connections narrower than 4 grid pixels wide
-
-  group_velocity:
-    enabled: true                 # Compute group velocity during BO iterations
-    delta_k: 0.01                 # Small k-vector offset from Gamma for group velocity
-    optimal_only: true            # Only compute vg for purple/low-cost optimal points
-
-optimizer:
-  iterations:
-    max_iterations: 15
-    batch_size: 4
-    initial_points: 16
-    initial_sampling: "sobol"
-
-  surrogate:
-    model: "GP"
-    objective_mode: "log"         # "log" (log10 cost) or "linear"
-    strategy: "cl_min"
-    random_state: 42
-
-  acquisition:
-    acq_func: "LCB"               # "LCB" (Lower Confidence Bound) or "gp_hedge"
-    acq_func_kwargs: {kappa: 3.5}
-    optimizer: "sampling"
-    n_points: 500
-    n_restarts: 1
-
-  visualization:
-    save_surrogate_freq: 1
-    neglect_sigma: false
-    colorbar_limits: [1, 1e3]
-
-postprocessing:
-  enabled: true                    # Enable postprocessing pipeline
-
-  locus:
-    threshold_percentile: 70.0    # Percentile cutoff to isolate the continuous high-FOM ridge
-    min_locus_area_px: 25         # Minimum connected pixel area to qualify as a valid locus
-    max_loci: 1                   # Maximum number of disjoint loci to extract
-    smoothness: 0.001             # Spline smoothing regularization (s in scipy.interpolate.splprep)
-    spline_degree: 3              # Degree of B-spline (k=3 for cubic spline)
-    sample_points: 20             # Number of evaluation points sampled along the locus curve
-
-  refinement:
-    enabled: true                 # Fine-tune sampled points to exact degeneracy (residual gap < tolerance)
-    tolerance: 1.0e-5             # Target residual gap tolerance floor (|Δω/ω0| < 1e-5)
-    max_steps: 10                 # Maximum Γ-only root-finding evaluations per point (typically 2-4)
-    method: "normal"              # "normal" (orthogonal to curve) or "r2" / "r1"
-    exclude_unrefined: true       # Automatically prune boundary points that cannot achieve exact degeneracy
-    max_residual_gap: 1.0e-4      # Hard cutoff threshold for valid Dirac cone manifold point
-
-  group_velocity:
-    enabled: true                 # Calculate group velocity at each refined locus point in parallel
-    delta_k: 0.01
-
-  band_diagram:
-    enabled: true                 # Run full k-path MPB simulations across locus points (generates band_structure.png & epsilon_map.png)
-
-  output:
-    export_csv: true              # Export extracted curve coordinates to bo_locus.csv
-    plot_overlay: true            # Overlay both GP surrogate and refined loci on bo_surrogate_map.png
-    plot_profiles: true           # Generate 3-panel bo_locus_profile.png
-```
-
-### CLI Usage
+### Initializing a Project Workspace (`phc-init`)
 
 ```bash
-# 1. Run full Bayesian Optimization + Postprocessing pipeline:
-uv run phc-bo --config InP/bo_config.yaml --dir InP
+uv run phc-init my_simulation
+```
 
-# 2. Run ONLY Postprocessing on existing optimization data (extracts loci, refines degeneracy, runs per-point simulations):
-uv run phc-bo --config InP/bo_config.yaml --dir InP --postprocess
+This creates the modular project structure:
+```text
+my_simulation/
+├── main.ctl                         # MPB Scheme script (materials, lattice, geometry)
+└── configs/                         # Modular Hydra configuration
+    ├── config.yaml                  # Master composition entrypoint
+    ├── simulation/default.yaml      # HPC workers, cores, only_gamma, ctl_script
+    ├── parameters/default.yaml      # Search bounds (r1, r2) & fixed MPB parameters (h, res, sz)
+    ├── target/accidental_dirac.yaml # Bands, symmetry, polarization, neck connectivity
+    ├── optimizer/bayesian.yaml      # Batch size, surrogate GP, LCB acquisition (kappa)
+    └── postprocessing/default.yaml  # Locus extraction, refinement, vg, band diagram
+```
 
-# 3. Re-plot figures from previous data without running any simulations:
-uv run phc-bo --config InP/bo_config.yaml --dir InP --plot
+### CLI Usage & Hydra Overrides
+
+```bash
+# Run with defaults:
+uv run phc-bo
+
+# Override parameters dynamically from CLI:
+uv run phc-bo parameters.fixed.h=0.35 simulation.parallel_workers=28
+
+# Multi-thickness parameter sweeps (-m / --multirun):
+uv run phc-bo -m parameters.fixed.h=0.30,0.35,0.40,0.45,0.50
+
+# Fast postprocessing on existing simulation output:
+uv run phc-bo general.postprocess_only=true postprocessing.band_diagram.enabled=false
+```
+
+# 2. Re-plot figures from previous data without running any simulations:
+uv run phc-bo general.plot_only=true
 ```
 
 ### Python API Usage
 
 ```python
-from phc_nzi import run_bo, BayesianOptimizer, load_bo_config
+from phc_nzi import BayesianOptimizer, load_bo_config
 
-# Run optimization using YAML configuration
-results = run_bo(config_path="InP/bo_config.yaml", work_dir="InP")
-print("Optimal parameters:", results["optimal_parameters"])
+# Run optimization programmatically
+opt = BayesianOptimizer(config_dict)
+results = opt.run()
 
-# Or run postprocessing only programmatically:
-cfg = load_bo_config("InP/bo_config.yaml")
-cfg["simulation"]["work_dir"] = "InP"
-opt = BayesianOptimizer(cfg)
+# Or run postprocessing only:
 opt.postprocess_only()
 ```
 

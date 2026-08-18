@@ -1,0 +1,13 @@
+# Continuous search bounds [min, max] in lattice units a
+search:
+  r1: [0.2, 0.4]                 # Primary cylinder radius r1
+  r2: [0.2, 0.4]                 # Secondary cylinder radius r2
+
+# Fixed geometry and simulation parameters passed via CLI to MPB (main.ctl)
+fixed:
+  resolution: 25                 # Grid resolution per unit cell length a in xy
+  res-z: 16                      # Grid resolution in z-direction
+  sz: 4                          # Supercell height in z-direction
+  h: 0.5                         # Slab thickness
+  num-bands: 12                  # Total bands calculated
+

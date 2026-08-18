@@ -1,0 +1,21 @@
+# Target physical dispersion & symmetry specifications
+symmetry:
+  group: "C4v"                  # Point group symmetry: "C4v" (square) or "C6v" (triangular)
+  polarization: "zeven"          # Polarization parity: "zeven" (even mirror parity) or "zodd"
+  target_irreps: ["A_2", "E", "E"] # Target irrep multiplet forming Dirac cone
+  irrep_occurrences: [2, 1, 1]  # Target occurrence order of irreps
+  min_band: 2                   # Lowest band index to inspect
+  degeneracy_tol: 0.00005       # Degeneracy tolerance for mode mixing failsafe
+  target_cost: 0.0025           # Active learning target cost floor
+  bypass_irrep_identification: true # Target bands directly
+  mode_indices: [8, 9, 10]      # Explicit band indices (when bypassing irrep detection)
+
+connectivity:
+  enabled: true                 # Invalidate disconnected matrix slab geometries
+  epsilon_threshold: 1.1        # Permittivity threshold for matrix material
+  min_neck_width_px: 2          # Reject connections narrower than 2 grid pixels wide
+
+group_velocity:
+  enabled: false                # Compute group velocity during BO iterations
+  delta_k: 0.001                # Offset from Gamma for group velocity calculation
+  optimal_only: true            # Only compute vg for purple/low-cost optimal points
