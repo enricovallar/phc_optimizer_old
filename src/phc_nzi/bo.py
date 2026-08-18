@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from skopt import Optimizer
@@ -1574,8 +1574,17 @@ class BayesianOptimizer:
                 )
                 return idx, refined_p, gap_val, cost_val
 
+            results = []
+            pbar = tqdm(total=n_pts, desc=f"Refining Locus #{l_id}", unit="pt", disable=not verbose)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                results = list(executor.map(refine_worker, tasks))
+                futures = {executor.submit(refine_worker, item): item[0] for item in tasks}
+                for f in as_completed(futures):
+                    res = f.result()
+                    results.append(res)
+                    idx, refined_p, gap_val, cost_val = res
+                    pbar.set_postfix({"pt": f"{idx+1:02d}/{n_pts:02d}", "gap": f"{cost_val:.1e}"})
+                    pbar.update(1)
+            pbar.close()
 
             r1_ref = [0.0] * n_pts
             r2_ref = [0.0] * n_pts
@@ -1808,8 +1817,17 @@ class BayesianOptimizer:
 
                 return pt_idx - 1, vg_val
 
+            results = []
+            pbar = tqdm(total=n_pts, desc=f"Simulating Locus #{l_id}", unit="pt", disable=not verbose)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                results = list(executor.map(run_single_point, point_tasks))
+                futures = {executor.submit(run_single_point, task): task[0] for task in point_tasks}
+                for f in as_completed(futures):
+                    res = f.result()
+                    results.append(res)
+                    idx_0, vg_v = res
+                    pbar.set_postfix({"pt": f"{idx_0+1:02d}/{n_pts:02d}", "vg": f"{vg_v:.4f}"})
+                    pbar.update(1)
+            pbar.close()
 
             vg_ordered = [0.0] * n_pts
             for idx_0, vg_v in results:
