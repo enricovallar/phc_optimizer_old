@@ -37,13 +37,42 @@ step2_3d_screening:
 # Step 3: Bayesian Optimization with Thickness Sweep
 step3_optimization:
   enabled: true
-  sz: 4                         # Supercell height in z-direction (finite height for 3D slab)
-  num_bands: 14                 # Bands computed at Gamma (>= 14 for 3D slab Dirac cone)
   h_sweep: [0.30, 0.35, 0.40, 0.45, 0.50] # Normalized slab thicknesses to optimize
-  initial_points: 280           # Initial Sobol/LHS exploration points per thickness
-  batch_size: 28                # Parallel batch size
-  max_iterations: 5             # Guided GP iterations
-  refinement_tolerance: 1.0e-5  # Residual gap tolerance for exact degeneracy
+
+  # Step 3 specific parameters (3D slab membrane)
+  parameters:
+    fixed:
+      sz: 4                         # Supercell height in z-direction
+      num-bands: 14                 # Bands computed at Gamma (>= 14 for 3D slab Dirac cone)
+      resolution: 25                # In-plane resolution
+      res-z: 16                     # Vertical resolution
+
+  # Step 3 specific optimizer settings
+  optimizer:
+    initial_sampling:
+      initial_points: 280           # Initial Sobol exploration points per thickness
+      strategy: "sobol"
+    iterations:
+      batch_size: 28                # Parallel batch size
+      max_iterations: 5             # Guided GP iterations
+
+  # Step 3 specific postprocessing settings
+  postprocessing:
+    enabled: true
+    locus:
+      mode: "polar"                 # "polar" (closed ring), "cartesian" (open curve), or "auto"
+      sample_points: 40             # Points evaluated along the locus
+      smoothness: 0.0001            # B-spline smoothing
+      spline_degree: 3              # Cubic spline
+    refinement:
+      enabled: true                 # Gamma-only normal line search fine-tuning
+      tolerance: 1.0e-5             # Residual gap tolerance for exact degeneracy
+      max_steps: 5                  # Line search evaluations per point
+    group_velocity:
+      enabled: true                 # Group velocity evaluation along locus
+      delta_k: 0.001
+    band_diagram:
+      enabled: true                 # Full k-path band structure and epsilon map
 
 # Step 4: Universal Design Curves & Physical Scaling
 step4_design_curves:
