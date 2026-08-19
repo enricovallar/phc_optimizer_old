@@ -77,8 +77,16 @@ def run_hpc(
     if only_gamma:
         mpb_command_line_params["only-gamma?"] = "true"
 
+    # Normalize parameter keys to Scheme hyphens (e.g. num_bands -> num-bands, res_z -> res-z)
+    cleaned_params = {}
+    for k, v in mpb_command_line_params.items():
+        k_str = str(k)
+        if "_" in k_str and not k_str.endswith("?"):
+            k_str = k_str.replace("_", "-")
+        cleaned_params[k_str] = v
+
     # Format MPB command line parameters (k=v pairs) safely escaped for bash
-    params = " ".join(shlex.quote(f"{k}={v}") for k, v in mpb_command_line_params.items())
+    params = " ".join(shlex.quote(f"{k}={v}") for k, v in cleaned_params.items())
 
     # Set MPI vs single-core command
     if use_mpi:
