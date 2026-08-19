@@ -61,30 +61,36 @@ def run_step3_optimization(
         if verbose:
             print(f"\n---> Launching Bayesian Optimization for h/a = {h_val:.2f} in '{h_dir.name}'...")
 
-        cfg_h = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
-        cfg_h.general.output_dir = str(h_dir / "bo_output")
-        cfg_h.simulation.work_dir = str(h_dir)
-        cfg_h.parameters.fixed.h = float(h_val)
-        sz_raw = fixed_params.get("sz", 4.0)
-        sz_val = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
-        cfg_h.parameters.fixed.sz = sz_val
-        cfg_h.parameters.fixed["num-bands"] = int(s3_cfg.get("num_bands", fixed_params.get("num-bands", fixed_params.get("num_bands", 14))))
-        cfg_h.parameters.fixed["resolution"] = int(fixed_params.get("resolution", 25))
-        cfg_h.parameters.fixed["res-z"] = int(fixed_params.get("res-z", fixed_params.get("res_z", 16)))
-        cfg_h.fixed_parameters = dict(cfg_h.parameters.fixed)
+        cfg_h_dict = OmegaConf.to_container(cfg, resolve=True)
+        if "general" not in cfg_h_dict:
+            cfg_h_dict["general"] = {}
+        cfg_h_dict["general"]["output_dir"] = str(h_dir / "bo_output")
+        cfg_h_dict["simulation"]["work_dir"] = str(h_dir)
+
+        fixed_dict = dict(cfg_h_dict.get("parameters", {}).get("fixed", {}))
+        fixed_dict["h"] = float(h_val)
+        sz_raw = fixed_dict.get("sz", 4.0)
+        fixed_dict["sz"] = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
+        fixed_dict["num-bands"] = int(s3_cfg.get("num_bands", fixed_dict.get("num-bands", fixed_dict.get("num_bands", 14))))
+        fixed_dict["resolution"] = int(fixed_dict.get("resolution", 25))
+        fixed_dict["res-z"] = int(fixed_dict.get("res-z", fixed_dict.get("res_z", 16)))
+
+        cfg_h_dict["fixed_parameters"] = fixed_dict
+        if "parameters" in cfg_h_dict and isinstance(cfg_h_dict["parameters"], dict):
+            cfg_h_dict["parameters"]["fixed"] = fixed_dict
 
         # Configure dynamic irrep and occurrence tracking (no hardcoded band indices)
-        cfg_h.target.symmetry.target_irreps = list(eff_irreps)
-        cfg_h.target.symmetry.irrep_occurrences = list(eff_occs)
-        cfg_h.target.symmetry.min_band = 2
-        cfg_h.target.symmetry.bypass_irrep_identification = False
-        cfg_h.target.symmetry.bypass_symmetry = False
-        cfg_h.target.symmetry.mode_indices = None
+        sym_dict = cfg_h_dict.setdefault("target", {}).setdefault("symmetry", {})
+        sym_dict["target_irreps"] = list(eff_irreps)
+        sym_dict["irrep_occurrences"] = list(eff_occs)
+        sym_dict["min_band"] = 2
+        sym_dict["bypass_irrep_identification"] = False
+        sym_dict["bypass_symmetry"] = False
+        sym_dict["mode_indices"] = None
 
-        cfg_h.postprocessing.enabled = True
-        cfg_h.postprocessing.group_velocity.enabled = True
+        cfg_h_dict.setdefault("postprocessing", {})["enabled"] = True
+        cfg_h_dict["postprocessing"].setdefault("group_velocity", {})["enabled"] = True
 
-        cfg_h_dict = OmegaConf.to_container(cfg_h, resolve=True)
         bo_inst = BayesianOptimizer(cfg_h_dict)
         bo_res = bo_inst.run()
 
