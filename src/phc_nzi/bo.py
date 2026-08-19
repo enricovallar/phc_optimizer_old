@@ -524,7 +524,19 @@ class BayesianOptimizer:
                 pol = "zeven"
             elif pol == "tm":
                 pol = "zodd"
-        combined_params[f"run-{pol}?"] = "true"
+
+        for m in ["run-te?", "run-tm?", "run-zeven?", "run-zodd?"]:
+            combined_params[m] = "false"
+
+        if pol in ["both", "all"]:
+            if combined_params.get("sz") and str(combined_params.get("sz")).lower() != "no-size":
+                combined_params["run-zeven?"] = "true"
+                combined_params["run-zodd?"] = "true"
+            else:
+                combined_params["run-te?"] = "true"
+                combined_params["run-tm?"] = "true"
+        else:
+            combined_params[f"run-{pol}?"] = "true"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             t_run1_0 = time.perf_counter()
@@ -1999,7 +2011,19 @@ class BayesianOptimizer:
                                 bs_pol = "zeven"
                             elif bs_pol == "tm":
                                 bs_pol = "zodd"
-                        bs_params[f"run-{bs_pol}?"] = "true"
+
+                        for m in ["run-te?", "run-tm?", "run-zeven?", "run-zodd?"]:
+                            bs_params[m] = "false"
+
+                        if bs_pol in ["both", "all"]:
+                            if bs_params.get("sz") and str(bs_params.get("sz")).lower() != "no-size":
+                                bs_params["run-zeven?"] = "true"
+                                bs_params["run-zodd?"] = "true"
+                            else:
+                                bs_params["run-te?"] = "true"
+                                bs_params["run-tm?"] = "true"
+                        else:
+                            bs_params[f"run-{bs_pol}?"] = "true"
 
                         run_hpc(
                             script=self._get_script_path(),
@@ -2033,7 +2057,7 @@ class BayesianOptimizer:
                                 data_path=bs_dir,
                                 output_path=bs_dir / "band_structure.png",
                                 bands=target_bands,
-                                polarization=pol,
+                                polarization=bs_pol,
                                 highlight_gaps=False,
                                 style="light",
                                 verbose=False,
@@ -2067,7 +2091,19 @@ class BayesianOptimizer:
                                 vg_pol = "zeven"
                             elif vg_pol == "tm":
                                 vg_pol = "zodd"
-                        vg_params[f"run-{vg_pol}?"] = "true"
+
+                        for m in ["run-te?", "run-tm?", "run-zeven?", "run-zodd?"]:
+                            vg_params[m] = "false"
+
+                        if vg_pol in ["both", "all"]:
+                            if vg_params.get("sz") and str(vg_params.get("sz")).lower() != "no-size":
+                                vg_params["run-zeven?"] = "true"
+                                vg_params["run-zodd?"] = "true"
+                            else:
+                                vg_params["run-te?"] = "true"
+                                vg_params["run-tm?"] = "true"
+                        else:
+                            vg_params[f"run-{vg_pol}?"] = "true"
 
                         run_hpc(
                             script=self._get_script_path(),
@@ -2194,14 +2230,25 @@ class BayesianOptimizer:
     def _run_validation(self, best_params: Dict[str, float]) -> None:
         print("\nExecuting final validation simulation across FULL k-path with optimal parameters...")
         combined = {**self.fixed_params, **best_params}
-        combined["display_symmetry?"] = "true"
         pol = self.target_cfg.get("polarization", "te").lower()
         if combined.get("sz") and str(combined.get("sz")).lower() != "no-size":
             if pol == "te":
                 pol = "zeven"
             elif pol == "tm":
                 pol = "zodd"
-        combined[f"run-{pol}?"] = "true"
+
+        for m in ["run-te?", "run-tm?", "run-zeven?", "run-zodd?"]:
+            combined[m] = "false"
+
+        if pol in ["both", "all"]:
+            if combined.get("sz") and str(combined.get("sz")).lower() != "no-size":
+                combined["run-zeven?"] = "true"
+                combined["run-zodd?"] = "true"
+            else:
+                combined["run-te?"] = "true"
+                combined["run-tm?"] = "true"
+        else:
+            combined[f"run-{pol}?"] = "true"
 
         script_path = self._get_script_path()
 

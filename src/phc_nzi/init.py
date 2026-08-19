@@ -65,7 +65,13 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (if (or delta-k-mode? delta_k_mode?)
     (set! k-points (list (vector3 delta-k 0 0))))
 
-; Solver callbacks with auto-detection for 2D vs 3D slabs
+; Dynamic solver execution flags (default to false unless passed via CLI)
+(define-param run-te? false)
+(define-param run-tm? false)
+(define-param run-zeven? false)
+(define-param run-zodd? false)
+
+; Solver callbacks with auto-detection for 2D vs 3D slabs when none specified
 (if (and (not run-te?) (not run-tm?) (not run-zeven?) (not run-zodd?))
     (if (and (defined? 'sz) (number? sz))
         (set! run-zeven? true)

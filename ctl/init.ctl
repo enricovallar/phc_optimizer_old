@@ -23,8 +23,8 @@
 (define-param res_z 16)
 
 ; Dynamic mode execution flags (can be overridden via CLI k=v pairs or case scripts)
-(define-param run-te? true)
-(define-param run-tm? true)
+(define-param run-te? false)
+(define-param run-tm? false)
 (define-param run-zeven? false)
 (define-param run-zodd? false)
 
