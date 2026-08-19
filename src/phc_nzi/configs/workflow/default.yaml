@@ -37,6 +37,7 @@ step2_3d_screening:
 # Step 3: Bayesian Optimization with Thickness Sweep
 step3_optimization:
   enabled: true
+  num_bands: 14                 # Bands computed at Gamma (>= 14 for 3D slab Dirac cone)
   h_sweep: [0.30, 0.35, 0.40, 0.45, 0.50] # Normalized slab thicknesses to optimize
   initial_points: 280           # Initial Sobol/LHS exploration points per thickness
   batch_size: 28                # Parallel batch size

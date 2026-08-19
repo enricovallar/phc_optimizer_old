@@ -100,13 +100,13 @@ def check_slab_connectivity(
     epsilon_threshold: float = 1.1,
     check_pbc: bool = True,
     min_neck_width_px: int = 1
-) -> Tuple[bool, str]:
+) -> Tuple[bool, int, str]:
     """
     Loads epsilon from an MPB HDF5 file and checks if dielectric matrix is continuous.
     """
     path = Path(h5_file_path).resolve()
     if not path.is_file():
-        return False, f"File not found: '{path}'"
+        return False, 0, f"File not found: '{path}'"
 
     try:
         with h5py.File(path, "r") as f:
@@ -120,17 +120,16 @@ def check_slab_connectivity(
                         eps_data = f[k][()]
                         break
                 else:
-                    return False, f"No dielectric dataset found in '{path.name}'."
+                    return False, 0, f"No dielectric dataset found in '{path.name}'."
 
-        is_conn, n_comp, msg = check_array_connectivity(
+        return check_array_connectivity(
             eps_data,
             epsilon_threshold=epsilon_threshold,
             check_pbc=check_pbc,
             min_neck_width_px=min_neck_width_px
         )
-        return is_conn, msg
     except Exception as e:
-        return False, f"Error processing '{path.name}': {e}"
+        return False, 0, f"Error processing '{path.name}': {e}"
 
 
 # =============================================================================
