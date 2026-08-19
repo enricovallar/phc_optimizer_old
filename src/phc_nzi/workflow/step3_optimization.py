@@ -63,26 +63,19 @@ def run_step3_optimization(
         if verbose:
             print(f"\n---> Launching Bayesian Optimization for h/a = {h_val:.2f} in '{h_dir.name}'...")
 
-        cfg_h_dict = OmegaConf.to_container(cfg, resolve=True)
-        if "general" not in cfg_h_dict:
-            cfg_h_dict["general"] = {}
-        cfg_h_dict["general"]["output_dir"] = str(h_dir / "bo_output")
-        cfg_h_dict["simulation"]["work_dir"] = str(h_dir)
+        # Resolve Step 3 configuration via 4-tier deep merge architecture
+        from ..config_utils import resolve_step_config
+        cfg_h_dict = resolve_step_config(cfg, "step3_optimization", s3_cfg)
 
-        fixed_dict = dict(cfg_h_dict.get("parameters", {}).get("fixed", {}))
+        cfg_h_dict.setdefault("general", {})["output_dir"] = str(h_dir / "bo_output")
+        cfg_h_dict.setdefault("simulation", {})["work_dir"] = str(h_dir)
+
+        fixed_dict = cfg_h_dict.setdefault("parameters", {}).setdefault("fixed", {})
         fixed_dict["h"] = float(h_val)
-        sz_val = s3_cfg.get("sz", cfg_h_dict.get("workflow", {}).get("step2_3d_screening", {}).get("sz", fixed_dict.get("sz", 4.0)))
-        fixed_dict["sz"] = 4.0 if str(sz_val).lower() == "no-size" else float(sz_val)
-        num_b = s3_cfg.get("num_bands")
-        if num_b is None:
-            num_b = fixed_dict.get("num-bands", fixed_dict.get("num_bands", 14))
-        fixed_dict["num-bands"] = int(num_b)
-        fixed_dict["resolution"] = int(fixed_dict.get("resolution", 25))
-        fixed_dict["res-z"] = int(fixed_dict.get("res-z", fixed_dict.get("res_z", 16)))
+        if "sz" not in fixed_dict or str(fixed_dict["sz"]).lower() == "no-size":
+            fixed_dict["sz"] = 4.0
 
         cfg_h_dict["fixed_parameters"] = fixed_dict
-        if "parameters" in cfg_h_dict and isinstance(cfg_h_dict["parameters"], dict):
-            cfg_h_dict["parameters"]["fixed"] = fixed_dict
 
         # Configure dynamic irrep and occurrence tracking (no hardcoded band indices)
         target_dict = cfg_h_dict.setdefault("target", {})
@@ -92,6 +85,7 @@ def run_step3_optimization(
         sym_dict["irrep_occurrences"] = list(eff_occs)
         sym_dict["min_band"] = 2
         sym_dict["bypass_irrep_identification"] = False
+
         wf_step = str(cfg_h_dict.get("workflow", {}).get("step", "")).lower()
         only_post = bool(
             s3_cfg.get("only_postprocessing", False)

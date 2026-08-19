@@ -9,6 +9,7 @@ from .geometry_check import check_slab_connectivity, check_array_connectivity
 from .design_curves import SlabDesignCurves, generate_design_curves
 from .slab_sweeper import run_slab_sweep
 from .workflow import DiscoveryWorkflow
+from .config_utils import deep_merge, resolve_step_config
 
 __all__ = [
     "run_hpc",
@@ -38,4 +39,6 @@ __all__ = [
     "generate_design_curves",
     "run_slab_sweep",
     "DiscoveryWorkflow",
+    "deep_merge",
+    "resolve_step_config",
 ]
