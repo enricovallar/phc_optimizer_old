@@ -82,9 +82,16 @@ MAIN_CTL_TEMPLATE = """; =======================================================
 (if run-zodd? (run-solver-with-callbacks run-zodd))
 """
 
-def init_folder(target_dir: Union[str, Path] = ".") -> Tuple[Path, Path]:
+def init_folder(target_dir: Union[str, Path] = ".", force: bool = False) -> Tuple[Path, Path]:
     """
     Initializes a target directory with the modular Hydra configs/ hierarchy and main.ctl template.
+    
+    Parameters:
+    -----------
+    target_dir : str or Path
+        Target directory to initialize.
+    force : bool
+        If True, reinitializes and overwrites existing configuration files and main.ctl template.
     """
     target_path = Path(target_dir).resolve()
     target_path.mkdir(parents=True, exist_ok=True)
@@ -97,17 +104,22 @@ def init_folder(target_dir: Union[str, Path] = ".") -> Tuple[Path, Path]:
     if not src_configs.is_dir():
         src_configs = Path(__file__).parents[2] / "configs"
 
-    if not dest_configs.exists() and src_configs.is_dir():
-        shutil.copytree(str(src_configs), str(dest_configs))
-        print(f"Created modular Hydra configuration directory: '{dest_configs}'")
-    elif dest_configs.exists():
-        print(f"Configuration directory already exists: '{dest_configs}'")
+    if src_configs.is_dir():
+        if not dest_configs.exists():
+            shutil.copytree(str(src_configs), str(dest_configs))
+            print(f"Created modular Hydra configuration directory: '{dest_configs}'")
+        elif force:
+            shutil.copytree(str(src_configs), str(dest_configs), dirs_exist_ok=True)
+            print(f"Reinitialized/updated Hydra configuration directory: '{dest_configs}'")
+        else:
+            print(f"Configuration directory already exists: '{dest_configs}' (use --force to overwrite)")
 
-    if not ctl_file.exists():
+    if not ctl_file.exists() or force:
         ctl_file.write_text(MAIN_CTL_TEMPLATE)
-        print(f"Created MPB control script: '{ctl_file}'")
+        status = "Reinitialized" if (ctl_file.exists() and force) else "Created"
+        print(f"{status} MPB control script: '{ctl_file}'")
     else:
-        print(f"MPB control script already exists: '{ctl_file}'")
+        print(f"MPB control script already exists: '{ctl_file}' (use --force to overwrite)")
 
     return dest_configs, ctl_file
 
@@ -127,6 +139,11 @@ def main():
         default=None,
         help="Target directory option"
     )
+    parser.add_argument(
+        "--force", "-f",
+        action="store_true",
+        help="Force reinitialization and overwrite existing configs/ and main.ctl template"
+    )
 
     args = parser.parse_args()
     target_dir = args.dir_opt or args.directory
@@ -134,9 +151,11 @@ def main():
     print("==================================================================")
     print("Initializing Photonic Crystal Simulation Workspace")
     print(f"Target Directory: '{target_dir}'")
+    if args.force:
+        print("Mode:             Force Reinitialization (--force)")
     print("==================================================================")
 
-    configs_dir, ctl_file = init_folder(target_dir)
+    configs_dir, ctl_file = init_folder(target_dir, force=args.force)
 
     print("\nInitialization Complete!")
     print("Project Workspace Structure:")
