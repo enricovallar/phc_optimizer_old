@@ -124,23 +124,43 @@ def run_step5_validation(
         use_mpi=True,
         cores=cores,
         wd=step_dir,
-        auto_extract=False,
+        auto_extract=True,
         auto_plot=False,
         only_gamma=False,
         verbose=verbose,
     )
 
-    # Plot Band Structure & Epsilon Map
+    # Move output files if located in output subfolder
+    raw_out = step_dir / "output"
+    if raw_out.is_dir():
+        import shutil
+        for item in raw_out.iterdir():
+            dest = step_dir / item.name
+            if not dest.exists():
+                shutil.copy2(str(item), str(dest))
+
+    # 1. Plot Full Band Structure & Zoomed Dirac Cone Band Structure
     bs_plot = step_dir / "validation_band_structure.png"
+    bs_zoom_plot = step_dir / "validation_band_structure_zoom.png"
     eps_plot = step_dir / "validation_epsilon_map.png"
+
+    target_bands = (
+        cfg_dict.get("target", {}).get("symmetry", {}).get("target_bands")
+        or cfg_dict.get("target", {}).get("target_bands")
+        or cfg_dict.get("target", {}).get("mode_indices")
+        or [8, 9, 10]
+    )
+
+    data_src = step_dir if list(step_dir.glob("*.data")) else (raw_out if raw_out.is_dir() else step_dir)
 
     try:
         plot_band_structure(
-            data_source=step_dir,
-            output_file=bs_plot,
-            parity_filter=["zeven"],
-            title=f"Validated Band Structure ($h = {h_target_nm:.0f}\\text{{ nm}}, a = {a_nm:.0f}\\text{{ nm}}$)",
-            show_plot=False,
+            data_path=data_src,
+            output_path=bs_plot,
+            polarization=pol,
+            title=f"Validated Full Band Structure ($h = {h_target_nm:.0f}\\text{{ nm}}, a = {a_nm:.0f}\\text{{ nm}}$)",
+            highlight_gaps=True,
+            style="light",
             verbose=False,
         )
     except Exception as e:
@@ -148,13 +168,29 @@ def run_step5_validation(
             print(f"Notice: Band structure plot: {e}")
 
     try:
-        eps_files = list(step_dir.glob("*-epsilon.h5")) or list((step_dir / "output").glob("*-epsilon.h5"))
+        plot_band_structure(
+            data_path=data_src,
+            output_path=bs_zoom_plot,
+            bands=target_bands,
+            polarization=pol,
+            title=f"Validated Dirac-Like Cone ($h = {h_target_nm:.0f}\\text{{ nm}}, a = {a_nm:.0f}\\text{{ nm}}$)",
+            highlight_gaps=False,
+            style="light",
+            verbose=False,
+        )
+    except Exception as e:
+        if verbose:
+            print(f"Notice: Zoomed band structure plot: {e}")
+
+    try:
+        eps_files = list(step_dir.glob("*-epsilon.h5")) + list(raw_out.glob("*-epsilon.h5") if raw_out.is_dir() else [])
         if eps_files:
             plot_epsilon(
-                h5_file=eps_files[0],
+                h5_path=eps_files[0],
                 output_path=eps_plot,
-                title="Validated Unit Cell Permittivity",
-                show=False,
+                title=f"Validated Unit Cell Permittivity ($r_1={r1_val*a_nm:.0f}\\text{{ nm}}, r_2={r2_val*a_nm:.0f}\\text{{ nm}}$)",
+                rectify=True,
+                plane="both",
                 verbose=False,
             )
     except Exception as e:
@@ -183,7 +219,8 @@ def run_step5_validation(
 
 ## 2. Validation Figures
 
-- **High-Resolution Band Structure**: `step5_validation/validation_band_structure.png`
+- **Full Band Structure**: `step5_validation/validation_band_structure.png`
+- **Zoomed Dirac-Like Cone**: `step5_validation/validation_band_structure_zoom.png`
 - **Dielectric Permittivity Map**: `step5_validation/validation_epsilon_map.png`
 - **Universal Design Rules**: `step4_design_curves/design_rules_1550nm.png`
 

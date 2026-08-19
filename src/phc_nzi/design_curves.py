@@ -228,6 +228,8 @@ class SlabDesignCurves:
             "a_nm": a_val,
             "r1_nm": r1_val,
             "r2_nm": r2_val,
+            "r1_norm": r1_val / a_val if a_val > 0 else 0.0,
+            "r2_norm": r2_val / a_val if a_val > 0 else 0.0,
             "r1_over_a": r1_val / a_val if a_val > 0 else 0.0,
             "r2_over_a": r2_val / a_val if a_val > 0 else 0.0,
             "rho_nm": rho_val,
@@ -237,6 +239,10 @@ class SlabDesignCurves:
             "h_over_a": h_a_val,
             "omega_D": omega_val,
         }
+
+    def get_design_point(self, h_nm: float) -> Dict[str, float]:
+        """Alias for query(h_nm)."""
+        return self.query(h_nm)
 
     def export_dense_csv(self, output_path: Union[str, Path], n_points: int = 100) -> Path:
         """Export continuous densely sampled design curve table to CSV."""
