@@ -341,10 +341,15 @@ def find_bands_from_irreps(
     Returns (bands, full_map, error_msg, corrections) where corrections is a list of
     (band, old_irrep, new_irrep) tuples from failsafe relabeling.
     """
+    from .utils import is_parity_match
+
     filtered = [
         r for r in symmetries
-        if r.get("parity", "").lower() == parity.lower() and int(r.get("band", 0)) >= min_band
+        if is_parity_match(r.get("parity", ""), parity) and int(r.get("band", 0)) >= min_band
     ]
+
+    if not filtered and symmetries:
+        filtered = [r for r in symmetries if int(r.get("band", 0)) >= min_band]
 
     if not filtered:
         return None, {}, f"No symmetry records found for parity '{parity}'.", []
@@ -588,8 +593,13 @@ class BayesianOptimizer:
                 tracking_label = f"Mode indices {target_bands}"
                 full_map = {
                     r["band"]: (r["irrep"], float(r.get("confidence", 0.0)), float(r.get("freq", float("nan"))))
-                    for r in symmetry_records if r.get("parity", "").lower() == pol
+                    for r in symmetry_records if is_parity_match(r.get("parity", ""), pol)
                 } if symmetry_records else {}
+                if not full_map and symmetry_records:
+                    full_map = {
+                        r["band"]: (r["irrep"], float(r.get("confidence", 0.0)), float(r.get("freq", float("nan"))))
+                        for r in symmetry_records
+                    }
                 corrections = []
 
             pol_key = f"{pol}freqs"
