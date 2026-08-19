@@ -220,6 +220,10 @@ def run_step2_3d_screening(
         # Compute irrep occurrences from the point with minimum gap
         t_irreps, t_occs = _compute_triplet_occurrences(b_trip, best_pt.get("irreps", {}), min_band=2)
 
+        dominant_irreps = max(irrep_counts, key=irrep_counts.get) if irrep_counts else "Unknown"
+        avg_match = float(np.mean(match_scores)) if match_scores else 0.0
+        p_locus = 1.0 if has_crossing else float(np.exp(- (min(abs(min_delta), abs(max_delta)) ** 2) / (2 * (0.02 ** 2))))
+
         if has_crossing and best_pt_match >= 1.0:
             status_str = f"Guaranteed (Exact Match at Min Gap {min_gap:.4f})"
         elif has_crossing:
