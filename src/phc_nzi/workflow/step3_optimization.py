@@ -25,24 +25,30 @@ def run_step3_optimization(
     param_bounds: List[List[float]],
     fixed_params: Dict[str, Any],
     sim_cfg: Dict[str, Any],
+    target_irreps: Optional[List[str]] = None,
+    irrep_occurrences: Optional[List[int]] = None,
     target_modes: Optional[List[int]] = None,
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
-    Executes Step 3: Multi-Thickness Bayesian Optimization Sweep across h/a.
+    Executes Step 3: Multi-Thickness Bayesian Optimization Sweep across h/a
+    using dynamic target irreps and occurrence matching discovered in Step 2.
     """
     step_dir = output_dir / "step3_optimization"
     step_dir.mkdir(parents=True, exist_ok=True)
 
     s3_cfg = cfg.get("step3_optimization", cfg.get("workflow", {}).get("step3_optimization", {}))
     h_sweep = list(s3_cfg.get("h_sweep", [0.30, 0.35, 0.40, 0.45, 0.50]))
-    target_bands = target_modes or list(cfg.target.symmetry.get("mode_indices", [8, 9, 10]))
+
+    eff_irreps = target_irreps or list(cfg.target.symmetry.get("target_irreps", ["A_2", "E", "E"]))
+    eff_occs = irrep_occurrences or list(cfg.target.symmetry.get("irrep_occurrences", [1, 4, 4]))
 
     if verbose:
         print("\n" + "=" * 70)
         print("STEP 3: Multi-Thickness Bayesian Optimization Sweep")
         print("=" * 70)
-        print(f"Target Bands:        {target_bands}")
+        print(f"Target Irreps:       {eff_irreps}")
+        print(f"Irrep Occurrences:   {eff_occs}")
         print(f"Thickness Sweep:     h/a in {h_sweep}")
         print(f"Workers:             {sim_cfg.get('parallel_workers', 28)} concurrent workers")
         print("-" * 70)
@@ -62,7 +68,12 @@ def run_step3_optimization(
         sz_raw = fixed_params.get("sz", 4.0)
         sz_val = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
         cfg_h.parameters.fixed.sz = sz_val
-        cfg_h.target.symmetry.mode_indices = list(target_bands)
+
+        # Configure dynamic irrep and occurrence tracking (no hardcoded band indices)
+        cfg_h.target.symmetry.target_irreps = list(eff_irreps)
+        cfg_h.target.symmetry.irrep_occurrences = list(eff_occs)
+        cfg_h.target.symmetry.mode_indices = None
+
         cfg_h.postprocessing.enabled = True
         cfg_h.postprocessing.group_velocity.enabled = True
 

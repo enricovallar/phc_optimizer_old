@@ -112,7 +112,7 @@ def run_step1_2d_screening(
         conn_ok = True
         if eps_files:
             try:
-                c_ok, c_msg = check_slab_connectivity(eps_files[0], epsilon_threshold=1.1, min_neck_width_px=1)
+                c_ok, c_comp, c_msg = check_slab_connectivity(eps_files[0], epsilon_threshold=1.1, min_neck_width_px=1)
                 conn_ok = c_ok
             except Exception:
                 conn_ok = True

@@ -88,7 +88,11 @@ class DiscoveryWorkflow:
                 return results
 
         if step_to_run in ["3", "all"]:
-            t_3d = results.get("step2", {}).get("best_triplet", {}).get("bands", [8, 9, 10])
+            t_3d = results.get("step2", {}).get("best_triplet", {})
+            t_irreps = t_3d.get("target_irreps", ["A_2", "E", "E"])
+            t_occs = t_3d.get("irrep_occurrences", [1, 4, 4])
+            t_bands = t_3d.get("bands", [8, 9, 10])
+
             res3 = run_step3_optimization(
                 cfg=self.cfg,
                 work_dir=self.work_dir,
@@ -97,7 +101,9 @@ class DiscoveryWorkflow:
                 param_bounds=self.param_bounds,
                 fixed_params=self.fixed_params,
                 sim_cfg=self.sim_cfg,
-                target_modes=t_3d,
+                target_irreps=t_irreps,
+                irrep_occurrences=t_occs,
+                target_modes=t_bands,
             )
             results["step3"] = res3
             if step_to_run == "3":

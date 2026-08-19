@@ -121,7 +121,7 @@ def run_step2_3d_screening(
         conn_ok = True
         if eps_files:
             try:
-                c_ok, c_msg = check_slab_connectivity(eps_files[0], epsilon_threshold=1.1, min_neck_width_px=2)
+                c_ok, c_comp, c_msg = check_slab_connectivity(eps_files[0], epsilon_threshold=1.1, min_neck_width_px=2)
                 conn_ok = c_ok
             except Exception:
                 conn_ok = True
@@ -213,9 +213,15 @@ def run_step2_3d_screening(
 
         dominant_irreps = max(irrep_counts, key=irrep_counts.get) if irrep_counts else "Unknown"
 
+        # Compute irrep occurrences from the point with minimum gap
+        best_pt = min([r for r in results if r["is_connected"]], key=lambda r: min([abs(delta_grid[r["index"]]), 1.0]), default=results[0])
+        t_irreps, t_occs = _compute_triplet_occurrences(b_trip, best_pt.get("irreps", {}))
+
         triplet_records.append({
             "bands": b_trip,
             "dominant_irreps": dominant_irreps,
+            "target_irreps": t_irreps,
+            "irrep_occurrences": t_occs,
             "match_score": avg_match,
             "p_locus": p_locus,
             "status": status_str,
@@ -341,3 +347,36 @@ def _plot_3d_triplets(
     output_file.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_file, dpi=200, bbox_inches="tight")
     plt.close(fig)
+
+
+def _compute_triplet_occurrences(b_trip: List[int], irreps_map: Dict[int, str]) -> Tuple[List[str], List[int]]:
+    """
+    Given a triplet of bands and a full band->irrep map, computes the list of irreps
+    and their 1-based occurrence indices.
+    """
+    by_irrep: Dict[str, List[List[int]]] = {}
+    all_bands = sorted(irreps_map.keys())
+    for b in all_bands:
+        irr = irreps_map[b]
+        if irr not in by_irrep:
+            by_irrep[irr] = []
+        dim = 2 if irr.startswith("E") else 1
+        if by_irrep[irr] and len(by_irrep[irr][-1]) < dim:
+            by_irrep[irr][-1].append(b)
+        else:
+            by_irrep[irr].append([b])
+
+    target_irreps = []
+    occurrences = []
+    for b in b_trip:
+        irr = irreps_map.get(b, "Unknown")
+        target_irreps.append(irr)
+        clusters = by_irrep.get(irr, [])
+        occ = 1
+        for c_idx, cl in enumerate(clusters, start=1):
+            if b in cl:
+                occ = c_idx
+                break
+        occurrences.append(occ)
+
+    return target_irreps, occurrences
