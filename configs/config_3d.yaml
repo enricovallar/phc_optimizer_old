@@ -1,18 +1,18 @@
 # ==============================================================================
-# 2D Photonic Crystal Master Bayesian Optimization Configuration (Hydra)
+# Master Photonic Crystal Bayesian Optimization Configuration (Hydra)
 # ==============================================================================
 
 defaults:
   - simulation: default
-  - parameters: pillars_2d
-  - target: accidental_dirac_2d
-  - optimizer: bayesian_default
+  - parameters: default
+  - target: accidental_dirac
+  - optimizer: bayesian
   - postprocessing: default
   - workflow: default
   - _self_
 
 general:
-  name: "InP_2D_Accidental_Dirac"
+  name: "InP_3D_Slab_Accidental_Dirac"
   output_dir: "bo_output"
   log_level: "INFO"
   clean_output: false

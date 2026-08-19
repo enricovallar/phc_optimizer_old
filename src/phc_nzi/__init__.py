@@ -8,6 +8,7 @@ from .init import init_folder
 from .geometry_check import check_slab_connectivity, check_array_connectivity
 from .design_curves import SlabDesignCurves, generate_design_curves
 from .slab_sweeper import run_slab_sweep
+from .workflow import DiscoveryWorkflow
 
 __all__ = [
     "run_hpc",
@@ -36,4 +37,5 @@ __all__ = [
     "SlabDesignCurves",
     "generate_design_curves",
     "run_slab_sweep",
+    "DiscoveryWorkflow",
 ]

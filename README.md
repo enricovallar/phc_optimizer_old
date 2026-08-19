@@ -288,6 +288,42 @@ print(f"Target h = 375 nm @ 1550 nm:")
 print(f"  Lattice constant a: {design['a_nm']:.1f} nm")
 print(f"  Hole radius r1:     {design['r1_nm']:.1f} nm")
 print(f"  Hole radius r2:     {design['r2_nm']:.1f} nm")
-print(f"  Filling factor FF:  {design['filling_factor']:.3f}")
-print(f"  Group velocity:     {design['vg_over_c']:.3f} c")
+---
+
+## End-to-End Autonomous NZI Discovery Workflow (`phc-workflow`)
+
+A fully modular, 5-step automated workflow designed to screen 2D patterns, discover mode triplets, verify 3D symmetry matching, optimize slab thicknesses via Bayesian Optimization, generate continuous design curves, and synthesize a complete discovery report.
+
+```text
+src/phc_nzi/workflow/
+├── __init__.py           # Package exports & CLI entrypoint
+├── step1_2d_screening.py # Step 1: 2D Grid Screening & Triplet Discovery (Band >= 2)
+├── step2_3d_screening.py # Step 2: 3D Grid Screening & Symmetry Matching at fixed h/a
+├── step3_optimization.py # Step 3: Multi-Thickness BO Sweep across h/a
+├── step4_design_curves.py# Step 4: Universal Design Rules & Physical Scaling at λ0
+├── step5_validation.py   # Step 5: High-Res Final Validation & Discovery Report
+└── pipeline.py           # Master Pipeline Orchestrator (DiscoveryWorkflow)
 ```
+
+### CLI Usage
+
+```bash
+# Run entire 5-step workflow:
+uv run phc-workflow
+
+# Run Step 1 (2D Screening on a 10x10 grid, excluding band 1):
+uv run phc-workflow workflow.step=1 workflow.step1_2d_screening.grid_points=10
+
+# Run Step 2 (3D Screening and Irrep Symmetry Matching at h/a = 0.50):
+uv run phc-workflow workflow.step=2 workflow.step2_3d_screening.fixed_h=0.50
+
+# Run Step 3 (BO Multi-Thickness Optimization Sweep):
+uv run phc-workflow workflow.step=3
+
+# Run Step 4 (Universal Design Rules for 1550 nm):
+uv run phc-workflow workflow.step=4 workflow.step4_design_curves.target_wavelength_nm=1550.0
+
+# Run Step 5 (High-Resolution Full Band Structure Validation):
+uv run phc-workflow workflow.step=5
+```
+

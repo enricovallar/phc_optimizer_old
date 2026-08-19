@@ -29,6 +29,7 @@ phc-rectifier = "phc_nzi.transformer:main"
 phc-bo = "phc_nzi.bo:main"
 phc-design = "phc_nzi.design_curves:main"
 phc-slab-sweep = "phc_nzi.slab_sweeper:main"
+phc-workflow = "phc_nzi.workflow:main"
 
 
 [build-system]

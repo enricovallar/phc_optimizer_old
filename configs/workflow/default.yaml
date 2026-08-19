@@ -1,0 +1,54 @@
+# ==============================================================================
+# End-to-End Photonic Crystal NZI Discovery Workflow Configuration
+# ==============================================================================
+
+step: "all"                     # Step to execute: 1, 2, 3, 4, 5, or "all" (interactive)
+interactive: true               # Prompt user between steps to confirm or pick target mode triplets
+output_dir: "workflow_output"   # Output directory for workflow artifacts and figures
+
+# Step 1: 2D Grid Screening & Triplet Discovery
+step1_2d_screening:
+  enabled: true
+  grid_points: 10               # Grid resolution per parameter axis (10 x 10 = 100 points)
+  min_band: 2                   # Lowest band index to analyze (excluding trivial band 1)
+  num_bands: 10                 # Total bands computed at Gamma
+  resolution: 32                # MPB 2D grid resolution
+  polarization: "te"            # 2D polarization ("te" or "tm")
+  symmetry_group: "C4v"         # Point group ("C4v" or "C6v")
+  target_irreps: ["A_2", "E", "E"] # Preferred target irreps if multiple candidates exist
+
+# Step 2: 3D Grid Screening & Mode Matching
+step2_3d_screening:
+  enabled: true
+  grid_points: 10               # Grid resolution per parameter axis (10 x 10 = 100 points)
+  min_band: 2                   # Lowest band index to analyze (excluding trivial band 1)
+  fixed_h: 0.50                 # Slab thickness h/a for 3D screening
+  sz: 4                         # Supercell height in z-direction
+  resolution: 25                # In-plane resolution
+  res_z: 16                     # Vertical resolution
+  num_bands: 14                 # Bands computed at Gamma (higher in 3D)
+  polarization: "zeven"         # 3D mirror parity ("zeven" or "zodd")
+  check_connectivity: true      # Filter out disconnected matrix slab geometries
+
+# Step 3: Bayesian Optimization with Thickness Sweep
+step3_optimization:
+  enabled: true
+  h_sweep: [0.30, 0.35, 0.40, 0.45, 0.50] # Normalized slab thicknesses to optimize
+  initial_points: 280           # Initial Sobol/LHS exploration points per thickness
+  batch_size: 28                # Parallel batch size
+  max_iterations: 5             # Guided GP iterations
+  refinement_tolerance: 1.0e-5  # Residual gap tolerance for exact degeneracy
+
+# Step 4: Universal Design Curves & Physical Scaling
+step4_design_curves:
+  enabled: true
+  target_wavelength_nm: 1550.0  # Operating wavelength in nm
+  highlight_h_nm: 375.0         # Reference slab thickness in nm to highlight
+
+# Step 5: Final Validation & Synthesis
+step5_validation:
+  enabled: true
+  resolution: 64                # High-resolution grid for final validation
+  res_z: 32                     # High-resolution vertical grid
+  k_points_per_segment: 30      # k-space sampling along Gamma-X-M-Gamma
+  generate_report: true         # Generate comprehensive Markdown Discovery Report
