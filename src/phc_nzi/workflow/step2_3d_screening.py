@@ -266,18 +266,19 @@ def run_step2_3d_screening(
     )
 
     if verbose:
-        print("\n" + "=" * 82)
+        print("\n" + "=" * 94)
         print("STEP 2: 3D MODE TRIPLET SCREENING & MATCHING SUMMARY")
-        print("=" * 82)
-        print(f"{'Bands':<12} | {'Best Pt Irreps':<18} | {'Best Match':<12} | {'Min Gap':<10} | {'Status'}")
-        print("-" * 82)
+        print("=" * 94)
+        print(f"{'Bands':<12} | {'Best Pt Irreps':<18} | {'Occurrences':<14} | {'Best Match':<12} | {'Min Gap':<10} | {'Status'}")
+        print("-" * 94)
         for t in triplet_records:
             b_str = str(t["bands"])
             irr_str = t["best_pt_irreps"]
+            occ_str = str(t["irrep_occurrences"])
             m_str = f"{t['best_pt_match']*100:.0f}%"
             gap_str = f"{t['min_gap']:.4f}"
-            print(f"{b_str:<12} | {irr_str:<18} | {m_str:<12} | {gap_str:<10} | {t['status']}")
-        print("=" * 82)
+            print(f"{b_str:<12} | {irr_str:<18} | {occ_str:<14} | {m_str:<12} | {gap_str:<10} | {t['status']}")
+        print("=" * 94)
         print(f"Saved 3D screening diagnostic plot to '{fig_file}'")
 
     # Select best triplet based on:
@@ -293,11 +294,27 @@ def run_step2_3d_screening(
             t["best_pt_match"],
         ),
     )
+
+    # Export structured diagnostic and summary data files
+    _export_step2_data_files(
+        step_dir=step_dir,
+        triplet_records=triplet_records,
+        best_triplet=best_3d_triplet,
+        results=results,
+        x1_vals=x1_vals,
+        x2_vals=x2_vals,
+        conn_mask=conn_mask,
+        param_names=param_names,
+        fixed_h=fixed_h,
+    )
+
     return {
         "step": 2,
         "step_dir": step_dir,
         "triplet_records": triplet_records,
         "best_triplet": best_3d_triplet,
+        "figure_path": fig_file,
+    }
         "figure_path": fig_file,
     }
 
@@ -421,3 +438,108 @@ def _compute_triplet_occurrences(
         occurrences.append(occ)
 
     return target_irreps, occurrences
+
+
+def _export_step2_data_files(
+    step_dir: Path,
+    triplet_records: List[Dict[str, Any]],
+    best_triplet: Dict[str, Any],
+    results: List[Dict[str, Any]],
+    x1_vals: np.ndarray,
+    x2_vals: np.ndarray,
+    conn_mask: np.ndarray,
+    param_names: List[str],
+    fixed_h: float,
+) -> None:
+    """Exports structured data files (JSON, CSV, NPZ) for Step 2 screening results."""
+    step_dir.mkdir(parents=True, exist_ok=True)
+    p1_name, p2_name = param_names[0], param_names[1]
+
+    # 1. best_triplet.json
+    best_summary = {
+        "bands": [int(b) for b in best_triplet.get("bands", [])],
+        "target_irreps": list(best_triplet.get("target_irreps", [])),
+        "irrep_occurrences": [int(o) for o in best_triplet.get("irrep_occurrences", [])],
+        "best_point_irreps": best_triplet.get("best_pt_irreps"),
+        "best_point_match": float(best_triplet.get("best_pt_match", 0.0)),
+        "min_gap": float(best_triplet.get("min_gap", 0.0)),
+        "status": str(best_triplet.get("status", "")),
+        "has_crossing": bool(best_triplet.get("has_crossing", False)),
+        "fixed_h": float(fixed_h),
+    }
+    with open(step_dir / "best_triplet.json", "w") as f:
+        json.dump(best_summary, f, indent=2)
+
+    # 2. screening_3d_summary.json & screening_3d_summary.csv
+    summary_list = []
+    for t in triplet_records:
+        summary_list.append({
+            "bands": str(t["bands"]),
+            "best_pt_irreps": str(t.get("best_pt_irreps", "")),
+            "irrep_occurrences": str(t.get("irrep_occurrences", [])),
+            "best_match_percent": float(t.get("best_pt_match", 0.0)) * 100.0,
+            "min_gap": float(t.get("min_gap", 0.0)),
+            "status": str(t.get("status", "")),
+            "has_crossing": bool(t.get("has_crossing", False)),
+            "dominant_irreps": str(t.get("dominant_irreps", "")),
+        })
+
+    with open(step_dir / "screening_3d_summary.json", "w") as f:
+        json.dump(summary_list, f, indent=2)
+
+    import csv
+    with open(step_dir / "screening_3d_summary.csv", "w", newline="") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=["bands", "best_pt_irreps", "irrep_occurrences", "best_match_percent", "min_gap", "status", "has_crossing", "dominant_irreps"]
+        )
+        writer.writeheader()
+        writer.writerows(summary_list)
+
+    # 3. screening_3d_grid_data.json & screening_3d_grid.csv
+    grid_records = []
+    csv_rows = []
+    all_bands = sorted(list(set(b for r in results for b in r.get("freqs", {}).keys())))
+
+    for r in results:
+        pt_dict = {
+            "index": r["index"],
+            p1_name: float(r["p1"]),
+            p2_name: float(r["p2"]),
+            "is_connected": bool(r.get("is_connected", True)),
+            "freqs": {int(k): float(v) for k, v in r.get("freqs", {}).items()},
+            "irreps": {int(k): str(v) for k, v in r.get("irreps", {}).items()},
+        }
+        grid_records.append(pt_dict)
+
+        row = {
+            "index": r["index"],
+            p1_name: float(r["p1"]),
+            p2_name: float(r["p2"]),
+            "is_connected": bool(r.get("is_connected", True)),
+        }
+        for b in all_bands:
+            row[f"band_{b}_freq"] = r.get("freqs", {}).get(b, np.nan)
+            row[f"band_{b}_irrep"] = r.get("irreps", {}).get(b, "Unknown")
+        csv_rows.append(row)
+
+    with open(step_dir / "screening_3d_grid_data.json", "w") as f:
+        json.dump(grid_records, f, indent=2)
+
+    if csv_rows:
+        with open(step_dir / "screening_3d_grid.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(csv_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(csv_rows)
+
+    # 4. screening_3d_landscapes.npz
+    save_dict = {
+        "x1_vals": x1_vals,
+        "x2_vals": x2_vals,
+        "conn_mask": conn_mask,
+    }
+    for t in triplet_records:
+        b_tag = "_".join(str(b) for b in t["bands"])
+        save_dict[f"delta_2d_{b_tag}"] = t["delta_2d"]
+        save_dict[f"gap_2d_{b_tag}"] = t["gap_2d"]
+
+    np.savez_compressed(step_dir / "screening_3d_landscapes.npz", **save_dict)

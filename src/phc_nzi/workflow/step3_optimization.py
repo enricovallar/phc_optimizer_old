@@ -49,6 +49,8 @@ def run_step3_optimization(
         print("=" * 70)
         print(f"Target Irreps:       {eff_irreps}")
         print(f"Irrep Occurrences:   {eff_occs}")
+        if target_modes:
+            print(f"Hypothetical Bands:  {list(target_modes)}")
         print(f"Thickness Sweep:     h/a in {h_sweep}")
         print(f"Workers:             {sim_cfg.get('parallel_workers', 28)} concurrent workers")
         print("-" * 70)
