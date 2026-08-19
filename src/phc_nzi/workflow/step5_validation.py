@@ -133,6 +133,14 @@ def run_step5_validation(
         w_ctl = (work_dir / sim_cfg.get("ctl_script", "main.ctl")).resolve()
         if w_ctl.is_file():
             ctl_script = w_ctl
+
+    # Clean old data and h5 files before simulation
+    for old_f in list(step_dir.glob("*.data")) + list((step_dir / "output").glob("*.data") if (step_dir / "output").is_dir() else []):
+        try:
+            old_f.unlink(missing_ok=True)
+        except Exception:
+            pass
+
     run_hpc(
         script=ctl_script,
         mpb_command_line_params=val_params,
@@ -154,17 +162,20 @@ def run_step5_validation(
             if not dest.exists():
                 shutil.copy2(str(item), str(dest))
 
+    # Extract frequencies freshly from output.out into step_dir
+    out_log = (step_dir / "output.out") if (step_dir / "output.out").is_file() else (raw_out / "output.out" if raw_out.is_dir() else None)
+    if out_log and out_log.is_file():
+        from ..extractor import extract_frequencies
+        try:
+            extract_frequencies(output_path=out_log, output_dir=step_dir, save_data=True, verbose=False)
+        except Exception as e:
+            if verbose:
+                print(f"Notice: Data extraction: {e}")
+
     # 1. Plot Full Band Structure & Zoomed Dirac Cone Band Structure
     bs_plot = step_dir / "validation_band_structure.png"
     bs_zoom_plot = step_dir / "validation_band_structure_zoom.png"
     eps_plot = step_dir / "validation_epsilon_map.png"
-
-    target_bands = (
-        cfg_dict.get("target", {}).get("symmetry", {}).get("target_bands")
-        or cfg_dict.get("target", {}).get("target_bands")
-        or cfg_dict.get("target", {}).get("mode_indices")
-        or [8, 9, 10]
-    )
 
     data_src = step_dir if list(step_dir.glob("*.data")) else (raw_out if raw_out.is_dir() else step_dir)
 
