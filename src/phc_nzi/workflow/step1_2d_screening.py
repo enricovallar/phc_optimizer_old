@@ -91,18 +91,21 @@ def run_step1_2d_screening(
             if k not in p_dict:
                 p_dict[k] = v
 
-        ctl_script = Path(sim_cfg.get("ctl_script", "main.ctl")).resolve()
-        run_hpc(
-            script=ctl_script,
-            mpb_command_line_params=p_dict,
-            use_mpi=False,
-            cores=cores,
-            wd=pt_dir,
-            auto_extract=False,
-            auto_plot=False,
-            only_gamma=True,
-            verbose=False,
-        )
+        out_log = pt_dir / "output" / "output.out"
+        already_done = out_log.is_file() and out_log.stat().st_size > 100
+        if not already_done:
+            ctl_script = Path(sim_cfg.get("ctl_script", "main.ctl")).resolve()
+            run_hpc(
+                script=ctl_script,
+                mpb_command_line_params=p_dict,
+                use_mpi=False,
+                cores=cores,
+                wd=pt_dir,
+                auto_extract=False,
+                auto_plot=False,
+                only_gamma=True,
+                verbose=False,
+            )
 
         out_txt = read_mpb_output_log(pt_dir)
         freq_dict = extract_gamma_frequencies(out_txt, pol=pol)
