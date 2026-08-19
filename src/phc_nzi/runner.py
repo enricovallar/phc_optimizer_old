@@ -90,7 +90,7 @@ def run_hpc(
 
     # Set MPI vs single-core command
     if use_mpi:
-        mpb_cmd = f"mpirun -np {cores} mpb-mpi"
+        mpb_cmd = f"mpirun --oversubscribe -np {cores} mpb-mpi"
     else:
         mpb_cmd = "mpb"
 
