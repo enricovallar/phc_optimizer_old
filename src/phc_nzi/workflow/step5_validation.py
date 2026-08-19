@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any
 from ..runner import run_hpc
 from ..plotter import plot_band_structure, plot_epsilon
 from ..extractor import extract_frequencies
+from ..config_utils import resolve_step_config
 
 
 def run_step5_validation(
@@ -26,11 +27,14 @@ def run_step5_validation(
     step_dir = output_dir / "step5_validation"
     step_dir.mkdir(parents=True, exist_ok=True)
 
-    s5_cfg = cfg.get("step5_validation", cfg.get("workflow", {}).get("step5_validation", {}))
+    cfg_dict = resolve_step_config(cfg, step_name="step5_validation")
+
+    s5_cfg = cfg_dict.get("step5_validation", cfg_dict.get("workflow", {}).get("step5_validation", {}))
     res = int(s5_cfg.get("resolution", 64))
     res_z = int(s5_cfg.get("res_z", 32))
     k_pts = int(s5_cfg.get("k_points_per_segment", 30))
-    cores = int(cfg.simulation.get("cores", 1))
+    sim_cfg = cfg_dict.get("simulation", {})
+    cores = int(sim_cfg.get("cores", 1))
 
     h_target_nm = 375.0
     a_nm = 840.0
@@ -58,22 +62,45 @@ def run_step5_validation(
         print(f"Validation Grid:     res = {res}, res-z = {res_z}, k-points/segment = {k_pts}")
         print("-" * 70)
 
+    fixed_params = cfg_dict.get("parameters", {}).get("fixed", {})
+    sz_raw = fixed_params.get("sz", 4.0)
+    sz_val = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
+
+    num_b = fixed_params.get("num-bands", fixed_params.get("num_bands", 14))
+    num_bands_val = int(num_b)
+
+    pol = str(cfg_dict.get("target", {}).get("symmetry", {}).get("polarization", cfg_dict.get("target", {}).get("polarization", "zeven"))).lower()
+    if pol == "te":
+        pol = "zeven"
+    elif pol == "tm":
+        pol = "zodd"
+
     val_params = {
         param_names[0]: r1_val,
         param_names[1]: r2_val,
         "h": h_a_val,
-        "sz": float(cfg.parameters.fixed.get("sz", 4.0)),
+        "sz": sz_val,
         "resolution": res,
         "res-z": res_z,
-        "num-bands": int(cfg.parameters.fixed.get("num_bands", 14)),
+        "num-bands": num_bands_val,
         "k-interp": k_pts,
         "only_gamma?": "false",
         "display_symmetry?": "true",
         "display_group_velocity?": "true",
-        "run-zeven?": "true",
     }
+    for m in ["run-te?", "run-tm?", "run-zeven?", "run-zodd?"]:
+        val_params[m] = "false"
+    if pol in ["both", "all"]:
+        val_params["run-zeven?"] = "true"
+        val_params["run-zodd?"] = "true"
+    else:
+        val_params[f"run-{pol}?"] = "true"
 
-    ctl_script = Path(cfg.simulation.get("ctl_script", "main.ctl")).resolve()
+    ctl_script = Path(sim_cfg.get("ctl_script", "main.ctl")).resolve()
+    if not ctl_script.is_file():
+        w_ctl = (work_dir / sim_cfg.get("ctl_script", "main.ctl")).resolve()
+        if w_ctl.is_file():
+            ctl_script = w_ctl
     run_hpc(
         script=ctl_script,
         mpb_command_line_params=val_params,

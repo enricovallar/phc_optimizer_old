@@ -1848,12 +1848,44 @@ class BayesianOptimizer:
                     is_valid_list.append(False)
                     validity_status_list.append(f"FAILED: Residual gap ({gap_v:.2e}) exceeds tolerance limit ({max_residual_gap:.2e})")
 
-            locus["r1"] = r1_ref
-            locus["r2"] = r2_ref
-            locus["residual_gap"] = costs_ref
-            locus["gaps"] = gaps_ref
-            locus["is_valid"] = is_valid_list
-            locus["validity_status"] = validity_status_list
+            # Save comprehensive audit report and CSV containing all evaluated points (valid & pruned)
+            locus_dir = self.output_dir / f"locus_{l_id:02d}"
+            locus_dir.mkdir(parents=True, exist_ok=True)
+            audit_csv = locus_dir / "bo_refinement_audit.csv"
+            audit_log = locus_dir / "bo_refinement_audit.log"
+
+            import csv
+            with open(audit_csv, "w", newline="") as f_csv, open(audit_log, "w") as f_log:
+                writer = csv.writer(f_csv)
+                p1_n = self.param_names[0] if len(self.param_names) >= 1 else "r1"
+                p2_n = self.param_names[1] if len(self.param_names) >= 2 else "r2"
+                writer.writerow([
+                    "point_idx",
+                    f"{p1_n}_initial",
+                    f"{p2_n}_initial",
+                    f"{p1_n}_refined",
+                    f"{p2_n}_refined",
+                    "residual_gap",
+                    "is_valid",
+                    "status"
+                ])
+                f_log.write(f"=== Locus #{l_id} Refinement Audit Report ===\n")
+                f_log.write(f"Total Points: {n_pts}\n")
+                f_log.write(f"Target Degeneracy Tolerance: {tol:.2e}\n")
+                f_log.write(f"Pruning Cutoff Threshold: {max_residual_gap:.2e}\n")
+                f_log.write(f"Exclude Unrefined: {exclude_unref}\n\n")
+
+                for idx in range(n_pts):
+                    r1_init = float(r1_pts[idx])
+                    r2_init = float(r2_pts[idx]) if len(r2_pts) > idx else 0.0
+                    r1_r = r1_ref[idx]
+                    r2_r = r2_ref[idx]
+                    gap_v = costs_ref[idx]
+                    is_v = is_valid_list[idx]
+                    status_str = validity_status_list[idx]
+
+                    writer.writerow([idx + 1, r1_init, r2_init, r1_r, r2_r, gap_v, is_v, status_str])
+                    f_log.write(f"Point #{idx+1:02d}: ({p1_n}={r1_init:.5f} -> {r1_r:.5f}, {p2_n}={r2_init:.5f} -> {r2_r:.5f}) | Gap: {gap_v:.2e} | Status: {status_str}\n")
 
             if exclude_unref:
                 valid_indices = [i for i, v in enumerate(is_valid_list) if v]
