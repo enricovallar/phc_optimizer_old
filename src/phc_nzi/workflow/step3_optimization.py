@@ -109,7 +109,8 @@ def run_step3_optimization(
         bo_inst = BayesianOptimizer(cfg_h_dict)
         bo_res = bo_inst.run()
 
-        locus_files = list(Path(cfg_h.general.output_dir).glob("locus_*/bo_locus.csv"))
+        bo_out_dir = Path(cfg_h_dict.get("general", {}).get("output_dir", h_dir / "bo_output"))
+        locus_files = list(bo_out_dir.glob("locus_*/bo_locus.csv"))
         locus_csv = locus_files[0] if locus_files else None
         sweep_records.append({
             "h_over_a": float(h_val),
