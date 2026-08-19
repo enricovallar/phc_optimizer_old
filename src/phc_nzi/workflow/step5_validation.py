@@ -80,11 +80,26 @@ def run_step5_validation(
         print(f"HPC MPI Solver:      {cores} cores (use_mpi=True, symmetry_irreps=False)")
         print("-" * 70)
 
+    target_bands = (
+        cfg_dict.get("target", {}).get("symmetry", {}).get("target_bands")
+        or cfg_dict.get("target", {}).get("target_bands")
+        or cfg_dict.get("target", {}).get("mode_indices")
+        or [8, 9, 10]
+    )
+
     sz_raw = fixed_params.get("sz", 4.0)
     sz_val = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
 
-    num_b = fixed_params.get("num-bands", fixed_params.get("num_bands", 14))
+    num_b = s5_cfg.get(
+        "num_bands",
+        s5_cfg.get(
+            "num-bands",
+            fixed_params.get("num-bands", fixed_params.get("num_bands", 14))
+        )
+    )
     num_bands_val = int(num_b)
+    if target_bands and max(target_bands) >= num_bands_val:
+        num_bands_val = max(target_bands) + 4
 
     pol = str(cfg_dict.get("target", {}).get("symmetry", {}).get("polarization", cfg_dict.get("target", {}).get("polarization", "zeven"))).lower()
     if pol == "te":

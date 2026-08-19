@@ -83,7 +83,6 @@ step4_design_curves:
 # Step 5: Final Validation & Synthesis
 step5_validation:
   enabled: true
-  resolution: 64                # High-resolution grid for final validation
-  res_z: 32                     # High-resolution vertical grid
+  num_bands: 14                 # Number of bands computed for 3D slab validation (>= 14)
   k_points_per_segment: 30      # k-space sampling along Gamma-X-M-Gamma
   generate_report: true         # Generate comprehensive Markdown Discovery Report
