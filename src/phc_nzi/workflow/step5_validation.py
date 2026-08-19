@@ -30,28 +30,45 @@ def run_step5_validation(
     cfg_dict = resolve_step_config(cfg, step_name="step5_validation")
 
     s5_cfg = cfg_dict.get("step5_validation", cfg_dict.get("workflow", {}).get("step5_validation", {}))
-    res = int(s5_cfg.get("resolution", 64))
-    res_z = int(s5_cfg.get("res_z", 32))
-    k_pts = int(s5_cfg.get("k_points_per_segment", 30))
-    sim_cfg = cfg_dict.get("simulation", {})
-    cores = int(sim_cfg.get("cores", 1))
+    fixed_params = cfg_dict.get("parameters", {}).get("fixed", {})
 
-    h_target_nm = 375.0
+    # Preserve resolution from previous steps by default
+    res = int(s5_cfg.get("resolution", fixed_params.get("resolution", 25)))
+    res_z = int(s5_cfg.get("res_z", fixed_params.get("res-z", fixed_params.get("res_z", 16))))
+    k_pts = int(s5_cfg.get("k_points_per_segment", 30))
+
+    sim_cfg = cfg_dict.get("simulation", {})
+    cores = int(s5_cfg.get("cores", sim_cfg.get("mpi_cores", sim_cfg.get("parallel_workers", sim_cfg.get("cores", 28)))))
+
+    h_target_nm = float(s5_cfg.get("target_thickness_nm", 375.0))
     a_nm = 840.0
     r1_val = 0.28
     r2_val = 0.35
     h_a_val = 0.446
 
+    # Load design point from Step 4 curves (in-memory or from disk)
+    curves_obj = None
     if design_curves_result and "curves" in design_curves_result:
+        curves_obj = design_curves_result["curves"]
+    else:
+        s4_summary_csv = output_dir / "step4_design_curves" / "slab_sweep_summary.csv"
+        if s4_summary_csv.is_file():
+            from ..design_curves import generate_design_curves
+            s4_cfg = cfg_dict.get("step4_design_curves", cfg_dict.get("workflow", {}).get("step4_design_curves", {}))
+            lambda0 = float(s4_cfg.get("target_wavelength_nm", 1550.0))
+            curves_obj = generate_design_curves(s4_summary_csv, lambda0_nm=lambda0, output_dir=output_dir / "step4_design_curves")
+
+    if curves_obj is not None:
         try:
-            pt = design_curves_result["curves"].get_design_point(h_nm=h_target_nm)
-            h_target_nm = pt["h_nm"]
-            a_nm = pt["a_nm"]
-            r1_val = pt["r1_norm"]
-            r2_val = pt["r2_norm"]
-            h_a_val = pt["h_over_a"]
-        except Exception:
-            pass
+            pt = curves_obj.get_design_point(h_nm=h_target_nm)
+            h_target_nm = float(pt["h_nm"])
+            a_nm = float(pt["a_nm"])
+            r1_val = float(pt["r1_norm"])
+            r2_val = float(pt["r2_norm"])
+            h_a_val = float(pt["h_over_a"])
+        except Exception as e:
+            if verbose:
+                print(f"Notice: Design curve interpolation note: {e}")
 
     if verbose:
         print("\n" + "=" * 70)
@@ -60,9 +77,9 @@ def run_step5_validation(
         print(f"Target Design:       h = {h_target_nm:.1f} nm -> a = {a_nm:.1f} nm")
         print(f"Normalized Radii:    r1/a = {r1_val:.4f} ({r1_val*a_nm:.1f} nm), r2/a = {r2_val:.4f} ({r2_val*a_nm:.1f} nm)")
         print(f"Validation Grid:     res = {res}, res-z = {res_z}, k-points/segment = {k_pts}")
+        print(f"HPC MPI Solver:      {cores} cores (use_mpi=True, symmetry_irreps=False)")
         print("-" * 70)
 
-    fixed_params = cfg_dict.get("parameters", {}).get("fixed", {})
     sz_raw = fixed_params.get("sz", 4.0)
     sz_val = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
 
@@ -85,8 +102,8 @@ def run_step5_validation(
         "num-bands": num_bands_val,
         "k-interp": k_pts,
         "only_gamma?": "false",
-        "display_symmetry?": "true",
-        "display_group_velocity?": "true",
+        "display_symmetry?": "false",       # No irreps during MPI validation
+        "display_group_velocity?": "false",
     }
     for m in ["run-te?", "run-tm?", "run-zeven?", "run-zodd?"]:
         val_params[m] = "false"
@@ -104,7 +121,7 @@ def run_step5_validation(
     run_hpc(
         script=ctl_script,
         mpb_command_line_params=val_params,
-        use_mpi=False,
+        use_mpi=True,
         cores=cores,
         wd=step_dir,
         auto_extract=False,
