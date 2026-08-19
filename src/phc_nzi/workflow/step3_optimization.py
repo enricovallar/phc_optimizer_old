@@ -41,7 +41,7 @@ def run_step3_optimization(
     h_sweep = list(s3_cfg.get("h_sweep", [0.30, 0.35, 0.40, 0.45, 0.50]))
 
     eff_irreps = target_irreps or list(cfg.target.symmetry.get("target_irreps", ["A_2", "E", "E"]))
-    eff_occs = irrep_occurrences or list(cfg.target.symmetry.get("irrep_occurrences", [1, 4, 4]))
+    eff_occs = irrep_occurrences or list(cfg.target.symmetry.get("irrep_occurrences", [2, 3, 3]))
 
     if verbose:
         print("\n" + "=" * 70)

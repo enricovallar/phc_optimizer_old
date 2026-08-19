@@ -51,6 +51,7 @@ from phc_nzi.extractor import extract_frequencies
 from phc_nzi.symmetry import analyze_symmetries_from_log
 from phc_nzi.plotter import plot_band_structure, plot_epsilon
 from phc_nzi.geometry_check import check_slab_connectivity
+from phc_nzi.utils import is_parity_match
 
 warnings.filterwarnings("ignore", category=UserWarning, module="skopt")
 
