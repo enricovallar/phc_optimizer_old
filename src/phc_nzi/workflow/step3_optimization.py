@@ -76,6 +76,8 @@ def run_step3_optimization(
         cfg_h.target.symmetry.target_irreps = list(eff_irreps)
         cfg_h.target.symmetry.irrep_occurrences = list(eff_occs)
         cfg_h.target.symmetry.min_band = 2
+        cfg_h.target.symmetry.bypass_irrep_identification = False
+        cfg_h.target.symmetry.bypass_symmetry = False
         cfg_h.target.symmetry.mode_indices = None
 
         cfg_h.postprocessing.enabled = True
