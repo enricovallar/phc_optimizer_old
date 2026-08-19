@@ -202,24 +202,36 @@ def run_step2_3d_screening(
         min_gap = float(np.min(valid_gaps)) if valid_gaps else 1.0
 
         has_crossing = (min_delta < 0) and (max_delta > 0)
-        avg_match = float(np.mean(match_scores)) if match_scores else 0.0
+        from collections import Counter
+        target_counter = Counter(target_tokens)
 
-        if has_crossing:
-            p_locus = 1.0 * (0.5 + 0.5 * avg_match)
-            status_str = f"Guaranteed ({avg_match*100:.0f}% Irrep Match)"
+        # Identify the best point (connected point with lowest gap / closest to crossing)
+        conn_pts = [r for r in results if r["is_connected"] and np.isfinite(gap_grid[r["index"]])]
+        if conn_pts:
+            best_pt = min(conn_pts, key=lambda r: (abs(delta_grid[r["index"]]), gap_grid[r["index"]]))
         else:
-            p_locus = float(np.exp(- (min(abs(min_delta), abs(max_delta)) ** 2) / (2 * (0.02 ** 2)))) * avg_match
-            status_str = f"Low ({p_locus*100:.1f}%)"
+            best_pt = results[0]
 
-        dominant_irreps = max(irrep_counts, key=irrep_counts.get) if irrep_counts else "Unknown"
+        best_pt_irreps = [best_pt.get("irreps", {}).get(b, "Unknown") for b in b_trip]
+        best_pt_counter = Counter(best_pt_irreps)
+        best_pt_match = sum((best_pt_counter & target_counter).values()) / max(len(target_tokens), 1)
+        best_pt_irr_str = "-".join(best_pt_irreps)
 
         # Compute irrep occurrences from the point with minimum gap
-        best_pt = min([r for r in results if r["is_connected"]], key=lambda r: min([abs(delta_grid[r["index"]]), 1.0]), default=results[0])
-        t_irreps, t_occs = _compute_triplet_occurrences(b_trip, best_pt.get("irreps", {}))
+        t_irreps, t_occs = _compute_triplet_occurrences(b_trip, best_pt.get("irreps", {}), min_band=2)
+
+        if has_crossing and best_pt_match >= 1.0:
+            status_str = f"Guaranteed (Exact Match at Min Gap {min_gap:.4f})"
+        elif has_crossing:
+            status_str = f"Crossing ({best_pt_match*100:.0f}% Best Pt Match)"
+        else:
+            status_str = f"Low ({best_pt_match*100:.0f}%)"
 
         triplet_records.append({
             "bands": b_trip,
             "dominant_irreps": dominant_irreps,
+            "best_pt_irreps": best_pt_irr_str,
+            "best_pt_match": best_pt_match,
             "target_irreps": t_irreps,
             "irrep_occurrences": t_occs,
             "match_score": avg_match,
@@ -241,21 +253,33 @@ def run_step2_3d_screening(
     )
 
     if verbose:
-        print("\n" + "=" * 78)
+        print("\n" + "=" * 82)
         print("STEP 2: 3D MODE TRIPLET SCREENING & MATCHING SUMMARY")
-        print("=" * 78)
-        print(f"{'Bands':<12} | {'Dominant Irreps':<18} | {'Irrep Match':<12} | {'Min Gap':<10} | {'Status'}")
-        print("-" * 78)
+        print("=" * 82)
+        print(f"{'Bands':<12} | {'Best Pt Irreps':<18} | {'Best Match':<12} | {'Min Gap':<10} | {'Status'}")
+        print("-" * 82)
         for t in triplet_records:
             b_str = str(t["bands"])
-            irr_str = t["dominant_irreps"]
-            m_str = f"{t['match_score']*100:.0f}%"
+            irr_str = t["best_pt_irreps"]
+            m_str = f"{t['best_pt_match']*100:.0f}%"
             gap_str = f"{t['min_gap']:.4f}"
             print(f"{b_str:<12} | {irr_str:<18} | {m_str:<12} | {gap_str:<10} | {t['status']}")
-        print("=" * 78)
+        print("=" * 82)
         print(f"Saved 3D screening diagnostic plot to '{fig_file}'")
 
-    best_3d_triplet = max(triplet_records, key=lambda t: (t["match_score"] > 0.6, t["has_crossing"], t["p_locus"], -t["min_gap"]))
+    # Select best triplet based on:
+    # 1. Zero-crossing in connected domain
+    # 2. Mode match of best point (>= 1.0 exact match)
+    # 3. Minimum degeneracy gap (closest to Dirac cone)
+    best_3d_triplet = max(
+        triplet_records,
+        key=lambda t: (
+            t["has_crossing"],
+            t["best_pt_match"] >= 1.0,
+            -t["min_gap"],
+            t["best_pt_match"],
+        ),
+    )
     return {
         "step": 2,
         "step_dir": step_dir,
