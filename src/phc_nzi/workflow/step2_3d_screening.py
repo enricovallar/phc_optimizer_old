@@ -500,10 +500,12 @@ def _export_step2_data_files(
     all_bands = sorted(list(set(b for r in results for b in r.get("freqs", {}).keys())))
 
     for r in results:
+        v1 = float(r.get(p1_name, r.get("p1", 0.0)))
+        v2 = float(r.get(p2_name, r.get("p2", 0.0)))
         pt_dict = {
             "index": r["index"],
-            p1_name: float(r["p1"]),
-            p2_name: float(r["p2"]),
+            p1_name: v1,
+            p2_name: v2,
             "is_connected": bool(r.get("is_connected", True)),
             "freqs": {int(k): float(v) for k, v in r.get("freqs", {}).items()},
             "irreps": {int(k): str(v) for k, v in r.get("irreps", {}).items()},
@@ -512,8 +514,8 @@ def _export_step2_data_files(
 
         row = {
             "index": r["index"],
-            p1_name: float(r["p1"]),
-            p2_name: float(r["p2"]),
+            p1_name: v1,
+            p2_name: v2,
             "is_connected": bool(r.get("is_connected", True)),
         }
         for b in all_bands:
