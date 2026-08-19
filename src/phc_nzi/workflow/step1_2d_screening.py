@@ -39,6 +39,10 @@ def run_step1_2d_screening(
     step_dir.mkdir(parents=True, exist_ok=True)
 
     s1_cfg = cfg.get("step1_2d_screening", cfg.get("workflow", {}).get("step1_2d_screening", {}))
+    wf_cfg = cfg.get("workflow", cfg)
+    force_rerun = bool(wf_cfg.get("force_rerun", False) or s1_cfg.get("force_rerun", False))
+    use_cache = bool(wf_cfg.get("use_cache", True) and s1_cfg.get("use_cache", True) and not force_rerun)
+
     n_grid = int(s1_cfg.get("grid_points", 10))
     min_band = max(2, int(s1_cfg.get("min_band", 2)))
     num_bands = int(s1_cfg.get("num_bands", 10))
@@ -64,7 +68,7 @@ def run_step1_2d_screening(
         print(f"Parameters:          {p1_name} in [{b1[0]}, {b1[1]}], {p2_name} in [{b2[0]}, {b2[1]}]")
         print(f"Polarization:        {pol.upper()} (sz=no-size, resolution={res}, num-bands={num_bands})")
         print(f"Band Range:          Bands {min_band} to {num_bands} (excluding trivial band 1)")
-        print(f"Parallel Workers:    {workers} workers")
+        print(f"Parallel Workers:    {workers} workers (use_cache={use_cache})")
         print("-" * 70)
 
     tasks = []
@@ -92,7 +96,7 @@ def run_step1_2d_screening(
                 p_dict[k] = v
 
         out_log = pt_dir / "output" / "output.out"
-        already_done = out_log.is_file() and out_log.stat().st_size > 100
+        already_done = use_cache and out_log.is_file() and out_log.stat().st_size > 100
         if not already_done:
             ctl_script = Path(sim_cfg.get("ctl_script", "main.ctl")).resolve()
             run_hpc(

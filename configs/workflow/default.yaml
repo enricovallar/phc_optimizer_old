@@ -4,11 +4,14 @@
 
 step: "all"                     # Step to execute: 1, 2, 3, 4, 5, or "all" (interactive)
 interactive: true               # Prompt user between steps to confirm or pick target mode triplets
+use_cache: true                 # Reuse existing MPB simulation logs if available (set false to recompute)
+force_rerun: false              # Force re-running all MPB simulations from scratch
 output_dir: "workflow_output"   # Output directory for workflow artifacts and figures
 
 # Step 1: 2D Grid Screening & Triplet Discovery
 step1_2d_screening:
   enabled: true
+  use_cache: true               # Set false to rerun only Step 1 simulations
   grid_points: 10               # Grid resolution per parameter axis (10 x 10 = 100 points)
   min_band: 2                   # Lowest band index to analyze (excluding trivial band 1)
   num_bands: 10                 # Total bands computed at Gamma
@@ -20,6 +23,7 @@ step1_2d_screening:
 # Step 2: 3D Grid Screening & Mode Matching
 step2_3d_screening:
   enabled: true
+  use_cache: true               # Set false to rerun only Step 2 simulations
   grid_points: 10               # Grid resolution per parameter axis (10 x 10 = 100 points)
   min_band: 2                   # Lowest band index to analyze (excluding trivial band 1)
   fixed_h: 0.50                 # Slab thickness h/a for 3D screening

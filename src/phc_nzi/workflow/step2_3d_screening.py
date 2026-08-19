@@ -40,6 +40,10 @@ def run_step2_3d_screening(
     step_dir.mkdir(parents=True, exist_ok=True)
 
     s2_cfg = cfg.get("step2_3d_screening", cfg.get("workflow", {}).get("step2_3d_screening", {}))
+    wf_cfg = cfg.get("workflow", cfg)
+    force_rerun = bool(wf_cfg.get("force_rerun", False) or s2_cfg.get("force_rerun", False))
+    use_cache = bool(wf_cfg.get("use_cache", True) and s2_cfg.get("use_cache", True) and not force_rerun)
+
     n_grid = int(s2_cfg.get("grid_points", 10))
     min_band = max(2, int(s2_cfg.get("min_band", 2)))
     fixed_h = float(s2_cfg.get("fixed_h", 0.50))
@@ -71,7 +75,7 @@ def run_step2_3d_screening(
         print(f"Grid Resolution:      {n_grid} x {n_grid} ({len(grid_pts)} total points)")
         print(f"Polarization:         {pol.upper()} (res={res}, res-z={res_z}, num-bands={num_bands})")
         print(f"Band Range:           Bands {min_band} to {num_bands} (excluding band 1)")
-        print(f"Parallel Workers:     {workers} workers")
+        print(f"Parallel Workers:     {workers} workers (use_cache={use_cache})")
         print("-" * 70)
 
     tasks = []
@@ -101,7 +105,7 @@ def run_step2_3d_screening(
                 p_dict[k] = v
 
         out_log = pt_dir / "output" / "output.out"
-        already_done = out_log.is_file() and out_log.stat().st_size > 100
+        already_done = use_cache and out_log.is_file() and out_log.stat().st_size > 100
         if not already_done:
             ctl_script = Path(sim_cfg.get("ctl_script", "main.ctl")).resolve()
             run_hpc(
