@@ -3,11 +3,11 @@ symmetry:
   group: "C4v"                  # Point group symmetry: "C4v" (square) or "C6v" (triangular)
   polarization: "zeven"          # Polarization parity: "zeven" (even mirror parity) or "zodd"
   target_irreps: ["A_2", "E", "E"] # Target irrep multiplet forming Dirac cone
-  irrep_occurrences: [2, 1, 1]  # Target occurrence order of irreps
+  irrep_occurrences: [2, 3, 3]  # 2nd occurrence of A_2 (non-trivial) and 3rd occurrence of E doublet
   min_band: 2                   # Lowest band index to inspect
   degeneracy_tol: 0.00005       # Degeneracy tolerance for mode mixing failsafe
   target_cost: 0.0025           # Active learning target cost floor
-  bypass_irrep_identification: true # Target bands directly
+  bypass_irrep_identification: false # Dynamic symmetry irrep tracking
   mode_indices: [8, 9, 10]      # Explicit band indices for 3D slab Dirac cone
 
 connectivity:

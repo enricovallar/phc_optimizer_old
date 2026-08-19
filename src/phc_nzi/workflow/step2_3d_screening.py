@@ -349,14 +349,18 @@ def _plot_3d_triplets(
     plt.close(fig)
 
 
-def _compute_triplet_occurrences(b_trip: List[int], irreps_map: Dict[int, str]) -> Tuple[List[str], List[int]]:
+def _compute_triplet_occurrences(
+    b_trip: List[int],
+    irreps_map: Dict[int, str],
+    min_band: int = 2,
+) -> Tuple[List[str], List[int]]:
     """
     Given a triplet of bands and a full band->irrep map, computes the list of irreps
-    and their 1-based occurrence indices.
+    and their 1-based occurrence indices among non-trivial bands (b >= min_band).
     """
     by_irrep: Dict[str, List[List[int]]] = {}
-    all_bands = sorted(irreps_map.keys())
-    for b in all_bands:
+    filtered_bands = [b for b in sorted(irreps_map.keys()) if b >= min_band]
+    for b in filtered_bands:
         irr = irreps_map[b]
         if irr not in by_irrep:
             by_irrep[irr] = []
