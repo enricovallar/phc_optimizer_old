@@ -315,8 +315,6 @@ def run_step2_3d_screening(
         "best_triplet": best_3d_triplet,
         "figure_path": fig_file,
     }
-        "figure_path": fig_file,
-    }
 
 
 def _plot_3d_triplets(
