@@ -60,7 +60,9 @@ def validate_and_normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validates and normalizes an optimization configuration dictionary with defaults.
     """
-    if not isinstance(config, dict):
+    if isinstance(config, DictConfig):
+        config = OmegaConf.to_container(config, resolve=True)
+    elif not isinstance(config, dict):
         raise ValueError(f"Invalid configuration dictionary. Expected a dict, got {type(config)}.")
 
     # 1. Simulation configuration

@@ -59,15 +59,19 @@ def run_step3_optimization(
         cfg_h.general.output_dir = str(h_dir / "bo_output")
         cfg_h.simulation.work_dir = str(h_dir)
         cfg_h.parameters.fixed.h = float(h_val)
-        cfg_h.parameters.fixed.sz = float(fixed_params.get("sz", 4.0))
+        sz_raw = fixed_params.get("sz", 4.0)
+        sz_val = 4.0 if str(sz_raw).lower() == "no-size" else float(sz_raw)
+        cfg_h.parameters.fixed.sz = sz_val
         cfg_h.target.symmetry.mode_indices = list(target_bands)
         cfg_h.postprocessing.enabled = True
         cfg_h.postprocessing.group_velocity.enabled = True
 
-        bo_inst = BayesianOptimizer(cfg_h)
+        cfg_h_dict = OmegaConf.to_container(cfg_h, resolve=True)
+        bo_inst = BayesianOptimizer(cfg_h_dict)
         bo_res = bo_inst.run()
 
-        locus_csv = Path(cfg_h.general.output_dir) / "locus_01" / "bo_locus.csv"
+        locus_files = list(Path(cfg_h.general.output_dir).glob("locus_*/bo_locus.csv"))
+        locus_csv = locus_files[0] if locus_files else None
         sweep_records.append({
             "h_over_a": float(h_val),
             "bo_dir": h_dir,

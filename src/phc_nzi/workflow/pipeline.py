@@ -30,7 +30,7 @@ class DiscoveryWorkflow:
         self.wf_cfg = cfg.get("workflow", {})
 
         self.work_dir = Path(self.sim_cfg.get("work_dir", ".")).resolve()
-        self.output_dir = Path(self.general_cfg.get("output_dir", self.wf_cfg.get("output_dir", "workflow_output"))).resolve()
+        self.output_dir = Path(self.wf_cfg.get("output_dir", "workflow_output")).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Robustly extract search parameters (supports dict 'search: {r1: [...], r2: [...]}' or list 'sweep: [...]')
