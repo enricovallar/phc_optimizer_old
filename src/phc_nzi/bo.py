@@ -886,8 +886,6 @@ class BayesianOptimizer:
             print("Running Step 3 Postprocessing Only from Existing Simulation Data")
             print(f"Working Directory:   '{self.work_dir}'")
             print(f"Data File:           '{data_src}'")
-            print("==================================================================")
-            import json
             try:
                 with open(data_src, "r") as f:
                     self.records = json.load(f)
