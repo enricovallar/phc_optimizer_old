@@ -47,6 +47,7 @@ def run_step2_3d_screening(
     n_grid = int(s2_cfg.get("grid_points", 10))
     min_band = max(2, int(s2_cfg.get("min_band", 2)))
     fixed_h = float(s2_cfg.get("fixed_h", 0.50))
+    sz_val = float(s2_cfg.get("sz", fixed_params.get("sz", 4.0)))
     pol = str(s2_cfg.get("polarization", "zeven")).lower()
     group = str(s2_cfg.get("symmetry_group", "C4v"))
     num_b = s2_cfg.get("num_bands")
