@@ -90,7 +90,7 @@ class DiscoveryWorkflow:
         if step_to_run in ["3", "all"]:
             t_3d = results.get("step2", {}).get("best_triplet", {})
             t_irreps = t_3d.get("target_irreps", ["A_2", "E", "E"])
-            t_occs = t_3d.get("irrep_occurrences", [1, 4, 4])
+            t_occs = t_3d.get("irrep_occurrences", [2, 3, 3])
             t_bands = t_3d.get("bands", [8, 9, 10])
 
             res3 = run_step3_optimization(

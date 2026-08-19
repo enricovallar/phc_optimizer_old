@@ -414,6 +414,7 @@ class BayesianOptimizer:
     def __init__(self, config: Dict[str, Any]):
         self.config = validate_and_normalize_config(copy.deepcopy(config))
         self.sim_cfg = self.config["simulation"]
+        self.params_cfg = self.config["parameters"]
         self.fixed_params = dict(self.config.get("fixed_parameters", {}))
         if "num_bands" in self.fixed_params and "num-bands" not in self.fixed_params:
             self.fixed_params["num-bands"] = self.fixed_params["num_bands"]
