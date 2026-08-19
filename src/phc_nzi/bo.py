@@ -1970,13 +1970,22 @@ class BayesianOptimizer:
 
                     # 1. Full band structure simulation (k-path)
                     if compute_bd:
+                        if bs_dir.is_dir():
+                            for old_f in bs_dir.glob("*.data"):
+                                old_f.unlink(missing_ok=True)
                         bs_dir.mkdir(parents=True, exist_ok=True)
                         bs_params = {**self.fixed_params, **p_dict}
                         bs_params["display_symmetry?"] = "true"
                         bs_params["display_group_velocity?"] = "false"
                         bs_params["only_gamma?"] = "false"
                         bs_params["delta_k_mode?"] = "false"
-                        bs_params[f"run-{pol}?"] = "true"
+                        bs_pol = str(self.target_cfg.get("polarization", "te")).lower()
+                        if bs_params.get("sz") and str(bs_params.get("sz")).lower() != "no-size":
+                            if bs_pol == "te":
+                                bs_pol = "zeven"
+                            elif bs_pol == "tm":
+                                bs_pol = "zodd"
+                        bs_params[f"run-{bs_pol}?"] = "true"
 
                         run_hpc(
                             script=self._get_script_path(),
@@ -2038,8 +2047,13 @@ class BayesianOptimizer:
                         vg_params["only_gamma?"] = "false"
                         vg_params["delta_k_mode?"] = "true"
                         vg_params["delta_k"] = delta_k
-                        vg_params["delta-k"] = delta_k
-                        vg_params[f"run-{pol}?"] = "true"
+                        vg_pol = str(self.target_cfg.get("polarization", "te")).lower()
+                        if vg_params.get("sz") and str(vg_params.get("sz")).lower() != "no-size":
+                            if vg_pol == "te":
+                                vg_pol = "zeven"
+                            elif vg_pol == "tm":
+                                vg_pol = "zodd"
+                        vg_params[f"run-{vg_pol}?"] = "true"
 
                         run_hpc(
                             script=self._get_script_path(),
