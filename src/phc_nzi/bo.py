@@ -490,6 +490,11 @@ class BayesianOptimizer:
         combined_params = {**self.fixed_params, **param_dict}
         combined_params["display_symmetry?"] = "true"
         pol = self.target_cfg.get("polarization", "te").lower()
+        if combined_params.get("sz") and str(combined_params.get("sz")).lower() != "no-size":
+            if pol == "te":
+                pol = "zeven"
+            elif pol == "tm":
+                pol = "zodd"
         combined_params[f"run-{pol}?"] = "true"
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2102,6 +2107,11 @@ class BayesianOptimizer:
         combined = {**self.fixed_params, **best_params}
         combined["display_symmetry?"] = "true"
         pol = self.target_cfg.get("polarization", "te").lower()
+        if combined.get("sz") and str(combined.get("sz")).lower() != "no-size":
+            if pol == "te":
+                pol = "zeven"
+            elif pol == "tm":
+                pol = "zodd"
         combined[f"run-{pol}?"] = "true"
 
         script_path = self._get_script_path()

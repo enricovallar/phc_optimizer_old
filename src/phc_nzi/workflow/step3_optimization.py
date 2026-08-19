@@ -83,7 +83,9 @@ def run_step3_optimization(
             cfg_h_dict["parameters"]["fixed"] = fixed_dict
 
         # Configure dynamic irrep and occurrence tracking (no hardcoded band indices)
-        sym_dict = cfg_h_dict.setdefault("target", {}).setdefault("symmetry", {})
+        target_dict = cfg_h_dict.setdefault("target", {})
+        target_dict["polarization"] = str(cfg_h_dict.get("workflow", {}).get("step2_3d_screening", {}).get("polarization", "zeven")).lower()
+        sym_dict = target_dict.setdefault("symmetry", {})
         sym_dict["target_irreps"] = list(eff_irreps)
         sym_dict["irrep_occurrences"] = list(eff_occs)
         sym_dict["min_band"] = 2
