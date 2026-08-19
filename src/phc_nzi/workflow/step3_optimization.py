@@ -71,6 +71,7 @@ def run_step3_optimization(
         cfg_h.parameters.fixed["num-bands"] = int(s3_cfg.get("num_bands", fixed_params.get("num-bands", fixed_params.get("num_bands", 14))))
         cfg_h.parameters.fixed["resolution"] = int(fixed_params.get("resolution", 25))
         cfg_h.parameters.fixed["res-z"] = int(fixed_params.get("res-z", fixed_params.get("res_z", 16)))
+        cfg_h.fixed_parameters = dict(cfg_h.parameters.fixed)
 
         # Configure dynamic irrep and occurrence tracking (no hardcoded band indices)
         cfg_h.target.symmetry.target_irreps = list(eff_irreps)

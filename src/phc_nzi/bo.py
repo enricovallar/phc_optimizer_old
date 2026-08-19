@@ -84,7 +84,7 @@ def validate_and_normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(params_raw, dict) and "search" in params_raw:
         config["parameters"] = params_raw["search"]
         if "fixed" in params_raw:
-            config["fixed_parameters"] = {**params_raw["fixed"], **config.get("fixed_parameters", {})}
+            config["fixed_parameters"] = {**config.get("fixed_parameters", {}), **params_raw["fixed"]}
     elif not params_raw:
         raise ValueError("No optimization parameters defined under 'parameters' in config file.")
     config.setdefault("fixed_parameters", {})
