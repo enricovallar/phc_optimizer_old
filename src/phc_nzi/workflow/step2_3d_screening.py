@@ -500,27 +500,26 @@ def _export_step2_data_files(
     all_bands = sorted(list(set(b for r in results for b in r.get("freqs", {}).keys())))
 
     for r in results:
-        v1 = float(r.get(p1_name, r.get("p1", 0.0)))
-        v2 = float(r.get(p2_name, r.get("p2", 0.0)))
         pt_dict = {
             "index": r["index"],
-            p1_name: v1,
-            p2_name: v2,
             "is_connected": bool(r.get("is_connected", True)),
             "freqs": {int(k): float(v) for k, v in r.get("freqs", {}).items()},
             "irreps": {int(k): str(v) for k, v in r.get("irreps", {}).items()},
         }
-        grid_records.append(pt_dict)
-
         row = {
             "index": r["index"],
-            p1_name: v1,
-            p2_name: v2,
             "is_connected": bool(r.get("is_connected", True)),
         }
+        for p in param_names:
+            val = float(r.get(p, 0.0))
+            pt_dict[p] = val
+            row[p] = val
+
         for b in all_bands:
             row[f"band_{b}_freq"] = r.get("freqs", {}).get(b, np.nan)
             row[f"band_{b}_irrep"] = r.get("irreps", {}).get(b, "Unknown")
+
+        grid_records.append(pt_dict)
         csv_rows.append(row)
 
     with open(step_dir / "screening_3d_grid_data.json", "w") as f:
