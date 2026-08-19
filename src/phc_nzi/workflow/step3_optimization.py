@@ -69,8 +69,10 @@ def run_step3_optimization(
 
         fixed_dict = dict(cfg_h_dict.get("parameters", {}).get("fixed", {}))
         fixed_dict["h"] = float(h_val)
-        sz_raw = fixed_dict.get("sz", 4.0)
-        fixed_dict["num-bands"] = max(14, int(s3_cfg.get("num_bands", fixed_dict.get("num-bands", 14))))
+        num_b = s3_cfg.get("num_bands")
+        if num_b is None:
+            num_b = fixed_dict.get("num-bands", fixed_dict.get("num_bands", 14))
+        fixed_dict["num-bands"] = int(num_b)
         fixed_dict["resolution"] = int(fixed_dict.get("resolution", 25))
         fixed_dict["res-z"] = int(fixed_dict.get("res-z", fixed_dict.get("res_z", 16)))
 
