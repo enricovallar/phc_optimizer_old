@@ -122,16 +122,32 @@ def validate_and_normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
     # 4. Bayesian Optimizer Settings
     opt_raw = config.get("optimizer") or config.get("optimization", {})
-    opt_iter = opt_raw.get("iterations", {})
-    opt_surr = opt_raw.get("surrogate", {})
-    opt_acq = opt_raw.get("acquisition", {})
-    opt_vis = opt_raw.get("visualization", {})
+    opt_iter = opt_raw.get("iterations", {}) if isinstance(opt_raw.get("iterations"), dict) else {}
+    opt_init = opt_raw.get("initial_sampling", {}) if isinstance(opt_raw.get("initial_sampling"), dict) else {}
+    opt_surr = opt_raw.get("surrogate", {}) if isinstance(opt_raw.get("surrogate"), dict) else {}
+    opt_acq = opt_raw.get("acquisition", {}) if isinstance(opt_raw.get("acquisition"), dict) else {}
+    opt_vis = opt_raw.get("visualization", {}) if isinstance(opt_raw.get("visualization"), dict) else {}
+
+    init_pts = (
+        opt_init.get("initial_points")
+        or opt_init.get("n_initial_points")
+        or opt_iter.get("initial_points")
+        or opt_raw.get("initial_points", 8)
+    )
+    init_strategy = (
+        opt_init.get("strategy")
+        or opt_init.get("method")
+        or (opt_raw.get("initial_sampling") if isinstance(opt_raw.get("initial_sampling"), str) else None)
+        or (opt_iter.get("initial_sampling") if isinstance(opt_iter.get("initial_sampling"), str) else "sobol")
+    )
+    max_iters = opt_iter.get("max_iterations", opt_raw.get("max_iterations", 20))
+    batch_sz = opt_iter.get("batch_size", opt_raw.get("batch_size", 4))
 
     opt = {
-        "max_iterations": int(opt_iter.get("max_iterations", opt_raw.get("max_iterations", 20))),
-        "batch_size": int(opt_iter.get("batch_size", opt_raw.get("batch_size", 4))),
-        "initial_points": int(opt_iter.get("initial_points", opt_raw.get("initial_points", 8))),
-        "initial_sampling": str(opt_iter.get("initial_sampling", opt_raw.get("initial_sampling", "sobol"))),
+        "max_iterations": int(max_iters),
+        "batch_size": int(batch_sz),
+        "initial_points": int(init_pts),
+        "initial_sampling": str(init_strategy),
 
         "model": str(opt_surr.get("model", opt_raw.get("model", "GP"))),
         "objective_mode": str(opt_surr.get("objective_mode", opt_raw.get("objective_mode", "log"))),

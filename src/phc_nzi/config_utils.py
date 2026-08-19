@@ -87,11 +87,27 @@ def resolve_step_config(
             fixed_params["res-z"] = int(step_dict["res_z"])
             fixed_params["res_z"] = int(step_dict["res_z"])
 
-        # Optimizer shortcuts
+        # Optimizer shortcuts & synchronization
         opt_cfg = base_dict.setdefault("optimizer", {})
         if "initial_points" in step_dict and step_dict["initial_points"] is not None:
             opt_cfg.setdefault("initial_sampling", {})["initial_points"] = int(step_dict["initial_points"])
             opt_cfg.setdefault("initial_sampling", {})["n_initial_points"] = int(step_dict["initial_points"])
+            opt_cfg.setdefault("iterations", {})["initial_points"] = int(step_dict["initial_points"])
+            opt_cfg.setdefault("iterations", {})["n_initial_points"] = int(step_dict["initial_points"])
+
+        if "optimizer" in step_dict and isinstance(step_dict["optimizer"], dict):
+            s_opt = step_dict["optimizer"]
+            if "initial_sampling" in s_opt and isinstance(s_opt["initial_sampling"], dict):
+                if "initial_points" in s_opt["initial_sampling"]:
+                    pts = int(s_opt["initial_sampling"]["initial_points"])
+                    opt_cfg.setdefault("iterations", {})["initial_points"] = pts
+                    opt_cfg.setdefault("iterations", {})["n_initial_points"] = pts
+            if "iterations" in s_opt and isinstance(s_opt["iterations"], dict):
+                if "initial_points" in s_opt["iterations"]:
+                    pts = int(s_opt["iterations"]["initial_points"])
+                    opt_cfg.setdefault("initial_sampling", {})["initial_points"] = pts
+                    opt_cfg.setdefault("initial_sampling", {})["n_initial_points"] = pts
+
         if "max_iterations" in step_dict and step_dict["max_iterations"] is not None:
             opt_cfg.setdefault("iterations", {})["max_iterations"] = int(step_dict["max_iterations"])
         if "batch_size" in step_dict and step_dict["batch_size"] is not None:
