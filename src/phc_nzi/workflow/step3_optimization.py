@@ -71,6 +71,8 @@ def run_step3_optimization(
 
         fixed_dict = dict(cfg_h_dict.get("parameters", {}).get("fixed", {}))
         fixed_dict["h"] = float(h_val)
+        sz_val = s3_cfg.get("sz", cfg_h_dict.get("workflow", {}).get("step2_3d_screening", {}).get("sz", fixed_dict.get("sz", 4.0)))
+        fixed_dict["sz"] = 4.0 if str(sz_val).lower() == "no-size" else float(sz_val)
         num_b = s3_cfg.get("num_bands")
         if num_b is None:
             num_b = fixed_dict.get("num-bands", fixed_dict.get("num_bands", 14))
