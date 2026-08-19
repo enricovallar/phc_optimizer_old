@@ -257,7 +257,7 @@ class SlabDesignCurves:
         ]
 
         with open(out_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             for h_val in h_dense:
                 writer.writerow(self.query(h_val))
