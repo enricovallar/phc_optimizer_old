@@ -92,11 +92,19 @@ def run_step3_optimization(
         sym_dict["irrep_occurrences"] = list(eff_occs)
         sym_dict["min_band"] = 2
         sym_dict["bypass_irrep_identification"] = False
-        sym_dict["bypass_symmetry"] = False
-        sym_dict["mode_indices"] = None
+        wf_step = str(cfg_h_dict.get("workflow", {}).get("step", "")).lower()
+        only_post = bool(
+            s3_cfg.get("only_postprocessing", False)
+            or s3_cfg.get("only_postprocess", False)
+            or wf_step in ["3_postprocess", "3_postprocessing", "postprocess", "postprocessing"]
+        )
+        if only_post:
+            cfg_h_dict.setdefault("postprocessing", {})["only_postprocessing"] = True
 
         cfg_h_dict.setdefault("postprocessing", {})["enabled"] = True
-        cfg_h_dict["postprocessing"].setdefault("group_velocity", {})["enabled"] = True
+        vg_dict = cfg_h_dict["postprocessing"].setdefault("group_velocity", {})
+        if "enabled" not in vg_dict:
+            vg_dict["enabled"] = True
 
         bo_inst = BayesianOptimizer(cfg_h_dict)
         bo_res = bo_inst.run()

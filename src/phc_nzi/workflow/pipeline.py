@@ -87,7 +87,7 @@ class DiscoveryWorkflow:
             if step_to_run == "2":
                 return results
 
-        if step_to_run in ["3", "all"]:
+        if step_to_run in ["3", "3_postprocess", "3_postprocessing", "postprocess", "postprocessing", "all"]:
             t_3d = results.get("step2", {}).get("best_triplet", {})
             t_irreps = t_3d.get("target_irreps", ["A_2", "E", "E"])
             t_occs = t_3d.get("irrep_occurrences", [2, 3, 3])
@@ -106,7 +106,7 @@ class DiscoveryWorkflow:
                 target_modes=t_bands,
             )
             results["step3"] = res3
-            if step_to_run == "3":
+            if step_to_run in ["3", "3_postprocess", "3_postprocessing", "postprocess", "postprocessing"]:
                 return results
 
         if step_to_run in ["4", "all"]:

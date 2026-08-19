@@ -163,6 +163,100 @@ def order_skeleton_points(pts_x: np.ndarray, pts_y: np.ndarray) -> Tuple[np.ndar
     return pts_x[path], pts_y[path]
 
 
+def extract_polar_ring_locus(
+    grid_x1: np.ndarray,
+    grid_x2: np.ndarray,
+    fom_2d: np.ndarray,
+    config: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Extracts continuous closed ring loci using polar radial ray maximum-ridge tracing.
+    Ideal for closed ring / annular degeneracy manifolds.
+    """
+    if config is None:
+        config = {}
+    locus_cfg = config.get("locus", {}) if isinstance(config.get("locus"), dict) else config
+    n_sample = int(locus_cfg.get("sample_points", config.get("sample_points", 40)))
+    smoothness = float(locus_cfg.get("smoothness", config.get("smoothness", 0.0001)))
+    spline_deg = int(locus_cfg.get("spline_degree", config.get("spline_degree", 3)))
+    center_cfg = locus_cfg.get("center", config.get("center", "auto"))
+
+    x1_min, x1_max = float(grid_x1[0]), float(grid_x1[-1])
+    x2_min, x2_max = float(grid_x2[0]), float(grid_x2[-1])
+    n1, n2 = len(grid_x1), len(grid_x2)
+
+    # 1. Determine ring center
+    if isinstance(center_cfg, (list, tuple)) and len(center_cfg) == 2:
+        x1c, x2c = float(center_cfg[0]), float(center_cfg[1])
+    else:
+        # Auto center: centroid of top 15% FOM points
+        thresh_pct = float(locus_cfg.get("threshold_percentile", 85.0))
+        finite_fom = fom_2d[np.isfinite(fom_2d)]
+        if finite_fom.size == 0:
+            return []
+        cutoff = float(np.percentile(finite_fom, thresh_pct))
+        mask = (fom_2d >= cutoff) & np.isfinite(fom_2d)
+        y_idx, x_idx = np.where(mask)
+        if len(x_idx) == 0:
+            x1c = 0.5 * (x1_min + x1_max)
+            x2c = 0.5 * (x2_min + x2_max)
+        else:
+            x1c = float(np.mean(grid_x1[x_idx]))
+            x2c = float(np.mean(grid_x2[y_idx]))
+
+    # Max radial reach
+    max_r = min(x1c - x1_min, x1_max - x1c, x2c - x2_min, x2_max - x2c) * 0.95
+    if max_r <= 0.005:
+        max_r = min(x1_max - x1_min, x2_max - x2_min) * 0.45
+
+    # 2. Polar rays
+    thetas = np.linspace(0, 2 * np.pi, max(n_sample, 30), endpoint=False)
+    r_scan = np.linspace(0.005, max_r, 250)
+
+    ring_x1 = []
+    ring_x2 = []
+    for th in thetas:
+        ux, uy = np.cos(th), np.sin(th)
+        px = x1c + r_scan * ux
+        py = x2c + r_scan * uy
+        idx_x = (np.clip(px, x1_min, x1_max) - x1_min) / max(x1_max - x1_min, 1e-12) * (n1 - 1)
+        idx_y = (np.clip(py, x2_min, x2_max) - x2_min) / max(x2_max - x2_min, 1e-12) * (n2 - 1)
+        fom_ray = ndi.map_coordinates(fom_2d, [idx_y, idx_x], order=3, mode="nearest")
+        best_r = r_scan[int(np.argmax(fom_ray))]
+        ring_x1.append(float(x1c + best_r * ux))
+        ring_x2.append(float(x2c + best_r * uy))
+
+    # 3. Fit smooth periodic spline
+    k = min(spline_deg, len(ring_x1) - 1, 3)
+    try:
+        tck, u = splprep([ring_x1, ring_x2], s=smoothness, k=k, per=True)
+        u_fine = np.linspace(0, 1, n_sample, endpoint=False)
+        curve_x1, curve_x2 = splev(u_fine, tck)
+    except Exception:
+        u_fine = np.linspace(0, 1, n_sample, endpoint=False)
+        curve_x1 = np.interp(u_fine, np.linspace(0, 1, len(ring_x1)), ring_x1)
+        curve_x2 = np.interp(u_fine, np.linspace(0, 1, len(ring_x2)), ring_x2)
+
+    # Resample FOM along fitted closed curve
+    idx_x = (np.clip(curve_x1, x1_min, x1_max) - x1_min) / max(x1_max - x1_min, 1e-12) * (n1 - 1)
+    idx_y = (np.clip(curve_x2, x2_min, x2_max) - x2_min) / max(x2_max - x2_min, 1e-12) * (n2 - 1)
+    fom_along_curve = ndi.map_coordinates(fom_2d, [idx_y, idx_x], order=3, mode="nearest")
+    arc_length = float(np.sum(np.hypot(np.diff(np.r_[curve_x1, curve_x1[0]]), np.diff(np.r_[curve_x2, curve_x2[0]]))))
+
+    return [{
+        "locus_id": 1,
+        "area_px": int(np.sum(fom_2d >= np.percentile(fom_2d[np.isfinite(fom_2d)], 60))),
+        "max_fom": float(np.max(fom_along_curve)),
+        "mean_fom": float(np.mean(fom_along_curve)),
+        "length": arc_length,
+        "is_closed": True,
+        "center": [x1c, x2c],
+        "r1": [float(v) for v in curve_x1],
+        "r2": [float(v) for v in curve_x2],
+        "fom": [float(v) for v in fom_along_curve],
+    }]
+
+
 def extract_optimal_loci(
     grid_x1: np.ndarray,
     grid_x2: np.ndarray,
@@ -171,41 +265,29 @@ def extract_optimal_loci(
 ) -> List[Dict[str, Any]]:
     """
     Extracts continuous 1D optimal connected loci (degeneracy curves) from a 2D FOM landscape.
-
-    Parameters:
-    -----------
-    grid_x1 : np.ndarray
-        1D array of parameter 1 coordinates (shape: N1,).
-    grid_x2 : np.ndarray
-        1D array of parameter 2 coordinates (shape: N2,).
-    fom_2d : np.ndarray
-        2D scalar field of FOM values (shape: N2, N1).
-    config : dict, optional
-        Postprocessing configuration options:
-        - threshold_percentile : float (default: 90.0)
-        - min_locus_area_px : int (default: 25)
-        - max_loci : int (default: 1)
-        - smoothness : float (default: 0.001)
-        - spline_degree : int (default: 3)
-        - sample_points : int (default: 50)
-
-    Returns:
-    --------
-    List[dict]:
-        List of extracted loci, each containing:
-        - 'locus_id': int (1, 2, ...)
-        - 'area_px': int
-        - 'max_fom': float
-        - 'mean_fom': float
-        - 'r1': List[float] (resampled parameter 1 coordinates)
-        - 'r2': List[float] (resampled parameter 2 coordinates)
-        - 'fom': List[float] (interpolated FOM values along the curve)
-        - 'length': float (approximate arc length in parameter space)
+    Supports 'polar' (closed ring), 'cartesian' (open curve), and 'auto' geometry modes.
     """
     if config is None:
         config = {}
 
     locus_cfg = config.get("locus", {}) if isinstance(config.get("locus"), dict) else config
+    mode = str(locus_cfg.get("mode", config.get("mode", locus_cfg.get("geometry_type", config.get("geometry_type", "auto"))))).lower()
+
+    if mode in ["polar", "ring", "closed"]:
+        return extract_polar_ring_locus(grid_x1, grid_x2, fom_2d, config=config)
+
+    finite_fom = fom_2d[np.isfinite(fom_2d)]
+    if finite_fom.size == 0:
+        return []
+
+    if mode == "auto":
+        # Auto-detect annular ring topology (hole in threshold mask)
+        thresh_test = float(locus_cfg.get("threshold_percentile", 80.0))
+        cutoff_test = float(np.percentile(finite_fom, thresh_test))
+        mask_test = (fom_2d >= cutoff_test) & np.isfinite(fom_2d)
+        filled_test = ndi.binary_fill_holes(mask_test)
+        if np.sum(filled_test) > (np.sum(mask_test) + 15):
+            return extract_polar_ring_locus(grid_x1, grid_x2, fom_2d, config=config)
 
     thresh_pct = float(locus_cfg.get("threshold_percentile", config.get("threshold_percentile", 90.0)))
     min_area = int(locus_cfg.get("min_locus_area_px", config.get("min_locus_area_px", 25)))
@@ -213,10 +295,6 @@ def extract_optimal_loci(
     smoothness = float(locus_cfg.get("smoothness", config.get("smoothness", 0.001)))
     spline_degree = int(locus_cfg.get("spline_degree", config.get("spline_degree", 3)))
     n_sample = int(locus_cfg.get("sample_points", config.get("sample_points", 50)))
-
-    finite_fom = fom_2d[np.isfinite(fom_2d)]
-    if finite_fom.size == 0:
-        return []
 
     cutoff = float(np.percentile(finite_fom, thresh_pct))
     mask = (fom_2d >= cutoff) & np.isfinite(fom_2d)

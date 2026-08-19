@@ -3,10 +3,12 @@ enabled: true                   # Enable postprocessing pipeline
 
 # 1. Manifold Extraction & Skeletonization
 locus:
+  mode: "polar"                 # Extraction geometry: "polar" (closed ring), "cartesian" (open curve), or "auto"
+  center: "auto"                # Center [r1_c, r2_c] for polar mode, or "auto" (centroid of top FOM)
   threshold_percentile: 60.0    # Percentile cutoff to isolate high-FOM ridge (e.g. top 40%)
   min_locus_area_px: 20         # Minimum connected component size in pixels
   max_loci: 1                   # Maximum number of disjoint loci to extract
-  smoothness: 0.001             # B-spline smoothing regularization factor
+  smoothness: 0.0001            # B-spline smoothing regularization factor
   spline_degree: 3              # Degree of B-spline (k=3 for cubic spline)
   sample_points: 40             # Number of evaluation points sampled along the curve
 
